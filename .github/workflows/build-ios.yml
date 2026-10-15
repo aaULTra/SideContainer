@@ -44,6 +44,13 @@ jobs:
             ~/.cargo/git
             rust-core/target
           key: ios-rust-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('rust-core/Cargo.lock', 'rust-core/Cargo.toml', 'rust-core/vendor/**/Cargo.toml') }}
+      - name: Type-check Swift against the iOS SDK
+        run: |
+          set -o pipefail
+          xcrun --sdk iphoneos swiftc -typecheck -parse-as-library -swift-version 5 \
+            -module-name SideInstaller -target arm64-apple-ios17.4 \
+            -sdk "$(xcrun --sdk iphoneos --show-sdk-path)" \
+            -I rust-core/include ios-app/*.swift 2>&1 | tee typecheck-ios.log
       - name: Build the existing Rust FFI
         run: bash build-rust.sh
       - name: Generate Xcode project
@@ -67,5 +74,6 @@ jobs:
           name: SideInstaller-build
           path: |
             build-ios.log
+            typecheck-ios.log
             SideInstaller-unsigned.ipa
           if-no-files-found: ignore
