@@ -310,9 +310,9 @@ enum ProfileMatcher {
 
 /// One app a refresh will act on: what is installed, and the IPA on disk it
 /// will be signed again from.
-struct RefreshJob: Identifiable, Equatable {
+struct RefreshJob: Identifiable, Equatable, Sendable {
 
-    enum State: Equatable {
+    enum State: Equatable, Sendable {
         case pending, working, done
         case failed(String)
     }
@@ -391,22 +391,19 @@ final class SideloadedAppsManager: ObservableObject {
 
     /// Ask the device what it has. `quiet` logs failures instead of showing them.
     func load(quiet: Bool = false) {
-        guard !isWorking, !isRefreshing else { return }
+        guard !isWorking, !isRefreshing, !AppRefreshService.shared.isRefreshing else { return }
         isWorking = true
         lastError = nil
         if !quiet { engine.log("=== Sideloaded apps: reading the device ===") }
         Task {
             do {
-                let inventory = try await engine.sideloadedAppInventory()
-                let apps = inventory.apps.compactMap(SideloadedApp.init(plist:))
-                let profiles = inventory.profiles.compactMap(ProvisioningProfile.init(data:))
-                let matched = ProfileMatcher.match(apps: apps, profiles: profiles)
-                entries = matched.entries
-                unmatched = matched.unmatched
-                await rebuildRefreshable()
+                let inventory = try await AppRefreshService.inventory(using: engine)
+                entries = inventory.entries
+                unmatched = inventory.unmatched
+                refreshable = inventory.jobs
+                unrefreshable = max(0, entries.count - refreshable.count)
                 hasLoaded = true
                 lastRefreshed = Date()
-                engine.log("Sideloaded apps: \(apps.count) sideloaded, \(profiles.count) profile(s) decoded.")
             } catch {
                 let message = (error as? LocalizedError)?.errorDescription ?? String(describing: error)
                 if quiet {
@@ -443,49 +440,26 @@ final class SideloadedAppsManager: ObservableObject {
                 refreshStatus = nil
                 refreshTask = nil
             }
+            let result: RefreshAllResult
             do {
-                try await engine.prepareRefresh()
+                result = try await AppRefreshService.shared.refreshAll { [weak self] jobs, status in
+                    self?.jobs = jobs
+                    self?.refreshStatus = status
+                }
             } catch {
-                let message = Self.text(for: error)
+                let message = AppRefreshService.text(for: error)
                 lastError = message
                 engine.log("⛔️ Refresh all: \(message)")
                 jobs = []
                 return
             }
 
-            var refreshed = 0
-            for index in jobs.indices {
-                // Cancellation is checked between apps; signing and installing
-                // can't be interrupted midway.
-                if Task.isCancelled { break }
-                let job = jobs[index]
-                // Skip apps signed by a different team: the new bundle ID would
-                // install a second copy instead of replacing the app.
-                if let team = engine.signingTeamID, let installed = job.teamID, installed != team {
-                    jobs[index].state = .failed(
-                        L("Signed by team %@, not the one you're signed in as — refreshing it here would install a second copy.", installed))
-                    continue
-                }
-                jobs[index].state = .working
-                refreshStatus = L("Refreshing %@", job.name)
-                do {
-                    try await engine.refreshInstalledApp(named: job.name, ipaPath: job.ipa.path)
-                    jobs[index].state = .done
-                    refreshed += 1
-                } catch {
-                    let message = Self.text(for: error)
-                    jobs[index].state = .failed(message)
-                    engine.log("⛔️ Refresh \(job.name): \(message)")
-                }
-            }
-
-            refreshSummary = jobs.count == 1
-                ? (refreshed == 1 ? L("Refreshed. Its seven days start again now.")
-                                  : L("Nothing was refreshed."))
-                : L("Refreshed %d of %d apps.", refreshed, jobs.count)
-            engine.log("Refresh all finished: \(refreshed)/\(jobs.count) refreshed.")
+            refreshSummary = result.total == 1
+                ? (result.refreshed == 1 ? L("Refreshed. Its seven days start again now.")
+                                         : L("Nothing was refreshed."))
+                : L("Refreshed %d of %d apps.", result.refreshed, result.total)
             // Read the device again, so the days on screen are the new ones.
-            if refreshed > 0 {
+            if result.refreshed > 0 {
                 isRefreshing = false        // `load` won't run while a refresh holds the link
                 load(quiet: true)
             }
@@ -501,49 +475,7 @@ final class SideloadedAppsManager: ObservableObject {
         engine.log("Refresh all: stopping after the current app.")
     }
 
-    /// A thrown error as the page should print it.
-    private static func text(for error: Error) -> String {
-        (error as? LocalizedError)?.errorDescription ?? String(describing: error)
-    }
 
-    /// Finds which listed apps have a matching IPA in Documents. The IPAs are
-    /// read off the main thread.
-    private func rebuildRefreshable() async {
-        let installed = entries.map {
-            InstalledRef(bundleID: $0.app.bundleID, name: $0.app.name,
-                         teamID: $0.current?.teamIdentifier)
-        }
-        let matched = await Task.detached(priority: .userInitiated) {
-            SideloadedAppsManager.pair(installed, with: IPALibrary.installable())
-        }.value
-        refreshable = matched
-        unrefreshable = max(0, entries.count - matched.count)
-        engine.log("Sideloaded apps: \(matched.count) of \(entries.count) can be refreshed from an IPA on disk.")
-    }
-
-    /// A page entry cut down to what the matching needs, so that work can be
-    /// handed off the main actor.
-    private struct InstalledRef: Sendable {
-        let bundleID: String
-        let name: String
-        let teamID: String?
-    }
-
-    /// One job per installed app that an IPA on disk would reinstall, in the
-    /// page's own order.
-    private nonisolated static func pair(
-        _ installed: [InstalledRef],
-        with library: [(entry: IPALibrary.Entry, info: IPALibrary.AppInfo)]
-    ) -> [RefreshJob] {
-        installed.compactMap { app in
-            guard let match = library.first(where: {
-                ProfileMatcher.installed(app.bundleID, isBuiltFrom: $0.info.bundleID,
-                                         teamID: app.teamID)
-            }) else { return nil }
-            return RefreshJob(bundleID: app.bundleID, name: app.name,
-                              ipa: match.entry.url, teamID: app.teamID)
-        }
-    }
 }
 
 // MARK: - View
@@ -1072,3 +1004,4 @@ private struct AppProfileDetail: View {
         }
     }
 }
+

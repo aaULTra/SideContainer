@@ -541,7 +541,7 @@ final class Engine: ObservableObject {
     /// Run every install step in order, stopping at the first failure.
     @MainActor
     func runOneClick() {
-        guard !isRunning else { return }
+        guard !isRunning, !AppRefreshService.shared.isRefreshing else { return }
         // Nothing downstream works on an older iOS.
         guard osSupported else {
             log("⛔️ iOS \(osVersionText) isn't supported — SideInstaller needs iOS \(Engine.minimumTunnelOSText) or later.")
@@ -3393,3 +3393,4 @@ enum TwoFactorPhase: Equatable {
         }
     }
 }
+
