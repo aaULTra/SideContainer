@@ -63,6 +63,14 @@ jobs:
             -sdk "$(xcrun --sdk iphoneos --show-sdk-path)" -I rust-core/include \
             -D SIDEINSTALLER_EMBEDDED -import-objc-header embedded/Runtime.h \
             ios-app/*.swift 2>&1 | tee embedded-typecheck.log
+      - name: Type-check host refresh bridge against the iOS SDK
+        run: |
+          set -o pipefail
+          xcrun --sdk iphoneos swiftc -typecheck -parse-as-library -swift-version 5 \
+            -module-name SideStoreSupport -target arm64-apple-ios17.5 \
+            -sdk "$(xcrun --sdk iphoneos --show-sdk-path)" \
+            -import-objc-header vendor-livecontainer/SideStoreSupport/SideStore-Bridging-Header.h \
+            vendor-livecontainer/SideStoreSupport/*.swift 2>&1 | tee embedded-host-typecheck.log
       - name: Build LiveContainer and host refresh bridge
         run: |
           set -o pipefail

@@ -9,18 +9,26 @@ public struct RefreshAllAppsIntent: AppIntent, ProgressReportingIntent, Foregrou
     public static var title: LocalizedStringResource = "Refresh All Apps"
     public static var description = IntentDescription("Refreshes apps using the built-in SideInstaller.")
     public static var openAppWhenRun = false
+    @MainActor private static var running = false
     public init() {}
 
     private enum Event: Sendable { case finished(String), deadline }
 
     @MainActor
     public func perform() async throws -> some IntentResult & ProvidesDialog {
+        guard !Self.running else {
+            throw NSError(domain: "EmbeddedSideInstaller", code: 1,
+                          userInfo: [NSLocalizedDescriptionKey: "Another embedded refresh is already running."])
+        }
+        Self.running = true
+        defer { Self.running = false }
+        let handler = RefreshHandler()
         let intentProgress = progress
         intentProgress.totalUnitCount = 1000
         let deadline = ContinuousClock.now + .seconds(27)
         let summary = try await withThrowingTaskGroup(of: Event.self) { group in
             group.addTask { @MainActor in
-                .finished(try await RefreshHandler.shared.refresh(progress: intentProgress))
+                .finished(try await handler.refresh(progress: intentProgress))
             }
             group.addTask {
                 try await Task.sleep(until: deadline, clock: .continuous)
@@ -53,13 +61,13 @@ public struct EmbeddedSideInstallerShortcuts: AppShortcutsProvider {
 
 @MainActor
 final class RefreshHandler: NSObject, RefreshServer {
-    static let shared = RefreshHandler()
     private var active = false
     private var ready = false
     private var progress: Progress?
     private var completion: CheckedContinuation<String, Error>?
     private var startup: CheckedContinuation<Void, Error>?
     private var listener: NSXPCListener?
+    private var connection: NSXPCConnection?
     private var client: RefreshClient?
     private var ext: NSExtension?
     private var launchTask: Task<Void, Never>?
@@ -83,6 +91,8 @@ final class RefreshHandler: NSObject, RefreshServer {
             launchTask = nil
             listener?.invalidate()
             listener = nil
+            connection?.invalidate()
+            connection = nil
             client = nil
             ready = false
             // The extension can be released after its final response, never
@@ -172,16 +182,25 @@ final class RefreshHandler: NSObject, RefreshServer {
     nonisolated func onConnection(_ connection: NSXPCConnection!) {
         connection.remoteObjectInterface = NSXPCInterface(with: RefreshClient.self)
         let proxy = connection.remoteObjectProxy as? RefreshClient
-        Task { @MainActor in self.client = proxy }
+        Task { @MainActor in
+            self.connection = connection
+            self.client = proxy
+            self.completeStartupIfReady()
+        }
     }
 
     nonisolated func finishedLaunching() {
         Task { @MainActor in
             self.ready = true
-            self.startup?.resume()
-            self.startup = nil
-            self.timeoutTask?.cancel()
+            self.completeStartupIfReady()
         }
+    }
+
+    private func completeStartupIfReady() {
+        guard ready, client != nil else { return }
+        startup?.resume()
+        startup = nil
+        timeoutTask?.cancel()
     }
 
     nonisolated func updateProgress(_ value: Double) {

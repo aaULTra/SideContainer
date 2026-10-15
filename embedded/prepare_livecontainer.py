@@ -58,10 +58,24 @@ def prepare(root):
     replace(header, "@protocol RefreshClient\n", "@protocol RefreshClient\n- (void)cancelRefresh;\n", 1)
     replace(header, "- (void) relaunchLC;", "- (void) relaunchLC;\n"
             "- (void)startLocalRefresh:(id<RefreshServer>)server;", 1)
+    replace(root / "SideStoreSupport/XPCServer.m", "@property NSObject<RefreshServer>* reporter;",
+            "@property (weak) NSObject<RefreshServer>* reporter;", 1)
     shutil.copyfile(embedded / "HostClient.m", root / "SideStoreSupport/XPCClient.m")
     shutil.copyfile(embedded / "HostRefresh.swift", root / "SideStoreSupport/SideStore.swift")
     (root / "SideStoreSupport/SideStoreClient.swift").write_text(
         "// SideInstaller refresh execution is in the embedded app's SIEmbeddedBridge.\nimport Foundation\n")
+    process = root / "LiveProcess/main.m"
+    replace(process, '#import <mach-o/dyld.h>', '#import <mach-o/dyld.h>\n#import <objc/message.h>', 1)
+    replace(process, 'connection.interruptionHandler = ^{\n            NSLog(@"interrupted!!!");\n        };',
+            'void (^cancelRefresh)(void) = ^{\n'
+            '            dispatch_async(dispatch_get_main_queue(), ^{\n'
+            '                Class bridge = NSClassFromString(@"SIEmbeddedBridge");\n'
+            '                SEL cancel = NSSelectorFromString(@"cancelRefresh");\n'
+            '                if ([bridge respondsToSelector:cancel]) ((void (*)(id, SEL))objc_msgSend)(bridge, cancel);\n'
+            '            });\n'
+            '        };\n'
+            '        connection.interruptionHandler = cancelRefresh;\n'
+            '        connection.invalidationHandler = cancelRefresh;', 1)
 
     utils = root / "LiveContainerSwiftUI/Utilities/LCUtils.m"
     replace(utils, "// use uttype to accurately detect store",

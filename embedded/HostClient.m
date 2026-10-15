@@ -2,6 +2,7 @@
 // signing pipeline or private App Intent runner.
 #include "XPCServer.h"
 #include "../LiveContainer/LCSharedUtils.h"
+#include "../LiveContainer/utils.h"
 #import <objc/message.h>
 #import <UIKit/UIKit.h>
 
@@ -17,7 +18,8 @@ static LiveProcessSideStoreHandler *handler;
 
 + (void)load {
     if (!NSUserDefaults.isSideStore || !NSUserDefaults.isLiveProcess) return;
-    handler = [NSClassFromString(@"LiveProcessSideStoreHandler") shared];
+    handler = ((LiveProcessSideStoreHandler *(*)(id, SEL))objc_msgSend)(
+        NSClassFromString(@"LiveProcessSideStoreHandler"), @selector(shared));
     installSideStoreNotificationHooks();
     handler.connection.exportedInterface = [NSXPCInterface interfaceWithProtocol:@protocol(RefreshClient)];
     handler.connection.exportedObject = self.shared;
