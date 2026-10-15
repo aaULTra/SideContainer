@@ -31,8 +31,6 @@ jobs:
             ios-app
             ios-live-activity
             rust-core
-            project.yml
-            build-rust.sh
       - name: Install XcodeGen and Rust targets
         run: |
           brew install xcodegen

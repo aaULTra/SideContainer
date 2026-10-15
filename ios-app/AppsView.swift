@@ -1002,4 +1002,3 @@ private struct AppProfileDetail: View {
         }
     }
 }
-

@@ -3405,4 +3405,3 @@ enum TwoFactorPhase: Equatable {
         }
     }
 }
-
