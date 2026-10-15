@@ -312,6 +312,9 @@ final class Engine: ObservableObject {
     private var askedLocalNetwork = false
 
     private var pipelineTask: Task<Void, Never>?
+    #if SIDEINSTALLER_EMBEDDED
+    private var embeddedInstallLease: EmbeddedRefreshLease?
+    #endif
     /// The IPA download a run starts as soon as the network is up, so it runs
     /// alongside pairing and sign-in instead of after them.
     private var prefetch: (source: InstallSource, channel: ReleaseChannel, version: String?,
@@ -592,6 +595,10 @@ final class Engine: ObservableObject {
             log("⛔️ Device IP \(deviceHost) is an address this iPhone already holds — that's the tunnel's own end, not the one to connect to. Check Settings › Advanced › Device IP (the default is 10.7.0.1).")
             return
         }
+        #if SIDEINSTALLER_EMBEDDED
+        do { embeddedInstallLease = try EmbeddedRefreshLease() }
+        catch { log("⛔️ \(error.localizedDescription)"); return }
+        #endif
         resetRun()
         isRunning = true
         log("=== Starting one-click install ===")
@@ -636,6 +643,9 @@ final class Engine: ObservableObject {
                 failActiveStep(to: .failed)
             }
             stopBackgroundWork()
+            #if SIDEINSTALLER_EMBEDDED
+            embeddedInstallLease = nil
+            #endif
             isRunning = false
             isCancelling = false
             pairingPIN = nil
@@ -1634,6 +1644,9 @@ final class Engine: ObservableObject {
                                      forMadeira: source == .madeira || Self.isMadeira(ipaPath: ipa))
             }
             signedAppPath = path
+            #if SIDEINSTALLER_EMBEDDED
+            await updateEmbeddedCertificateIfPossible()
+            #endif
             // Read the app's name from the signed bundle (imported IPAs have none before this).
             signedDisplayName = signedAppName()
             setStep(.sign, .done)
@@ -2173,6 +2186,30 @@ final class Engine: ObservableObject {
 
     // MARK: Success
 
+    #if SIDEINSTALLER_EMBEDDED
+    @MainActor
+    func shareCertificateWithLiveContainer() async throws {
+        try await AppRefreshService.shared.withExclusiveOperation {
+            try await self.prepareRefresh()
+            try await self.exportEmbeddedCertificate()
+        }
+    }
+
+    @MainActor
+    private func exportEmbeddedCertificate() async throws {
+        guard let session = signSession else { throw EngineError.message(L("Not signed in.")) }
+        let config = try await onSignQueue { try self.buildAccountConfig(session: session) }
+        try SIEmbeddedBridge.storeCertificate(config: config, signingTeam: signingTeamID)
+        log("Signing certificate shared with this combined LiveContainer. No Apple ID password was shared.")
+    }
+
+    @MainActor
+    private func updateEmbeddedCertificateIfPossible() async {
+        do { try await exportEmbeddedCertificate() }
+        catch { log("LiveContainer certificate hand-off: \(error.localizedDescription)") }
+    }
+    #endif
+
     @MainActor
     private func finishSuccess() {
         finished = true
@@ -2246,7 +2283,11 @@ final class Engine: ObservableObject {
 
     private static let localDevVPNScheme = "localdevvpn"
     /// The scheme LocalDevVPN is asked to return to, registered in Info.plist.
+    #if SIDEINSTALLER_EMBEDDED
+    private static let callbackScheme = "sideinstaller-embedded"
+    #else
     private static let callbackScheme = "sideinstaller"
+    #endif
 
     /// True when LocalDevVPN is installed. Only answerable because Info.plist
     /// lists its scheme under `LSApplicationQueriesSchemes`.
@@ -2677,6 +2718,9 @@ final class Engine: ObservableObject {
             throw EngineError.message(L("Apple won't issue a signing certificate for this Apple ID: it reports that one already exists (error 7460). Revoke it under Tools › Certificates, then refresh again."))
         }
         defer { Self.discardSignedBundle(at: signed) }
+        #if SIDEINSTALLER_EMBEDDED
+        await updateEmbeddedCertificateIfPossible()
+        #endif
         installProgress = 0
         let ip = deviceHost
         try await onDeviceQueue {
