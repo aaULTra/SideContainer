@@ -2639,7 +2639,19 @@ final class Engine: ObservableObject {
             throw EngineError.message(L("No Apple ID saved. Add one in Settings › Account."))
         }
         try await ensurePairingConnection()
-        try await signIn(updatingChecklist: false)
+        // Use the existing sign-in run token so a cancelled Shortcut cannot
+        // leave the Rust 2FA callback waiting on a sheet it can no longer show.
+        let run = finishedRuns
+        try await withTaskCancellationHandler {
+            try Task.checkCancellation()
+            try await signIn(updatingChecklist: false, run: run)
+        } onCancel: {
+            DispatchQueue.main.async {
+                self.finishedRuns = max(self.finishedRuns, run + 1)
+                self.cancelTwoFactor()
+            }
+        }
+        try Task.checkCancellation()
     }
 
     /// Re-signs `ipaPath` (issuing a new provisioning profile) and installs it

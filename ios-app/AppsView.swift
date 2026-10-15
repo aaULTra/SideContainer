@@ -474,8 +474,6 @@ final class SideloadedAppsManager: ObservableObject {
         refreshStatus = L("Stopping after this app")
         engine.log("Refresh all: stopping after the current app.")
     }
-
-
 }
 
 // MARK: - View
