@@ -7,7 +7,7 @@ import Darwin
 /// UI and LiveProcess have different Engine singletons. An OS-held lock also
 /// excludes the other process and is automatically released if either dies.
 final class EmbeddedRefreshLease {
-    private let descriptor: Int32
+    private var descriptor: Int32 = -1
 
     init() throws {
         let directory = URL(fileURLWithPath: NSHomeDirectory()).appendingPathComponent("Library/Caches")
@@ -16,12 +16,15 @@ final class EmbeddedRefreshLease {
                           O_CREAT | O_RDWR, S_IRUSR | S_IWUSR)
         guard descriptor >= 0 else { throw EngineError.message("Unable to reserve the embedded signing operation.") }
         guard flock(descriptor, LOCK_EX | LOCK_NB) == 0 else {
-            close(descriptor)
+            let failedDescriptor = descriptor
+            descriptor = -1
+            close(failedDescriptor)
             throw EngineError.message("SideInstaller is already installing or refreshing in another process.")
         }
     }
 
     deinit {
+        guard descriptor >= 0 else { return }
         flock(descriptor, LOCK_UN)
         close(descriptor)
     }
