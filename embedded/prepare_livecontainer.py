@@ -97,6 +97,8 @@ def prepare(root):
             '"No matching certificate was shared. Open SideInstaller and tap Share signing certificate after signing an app with the same team as this host."', 1)
     replace(settings, 'if store == .AltStore || store == .SideStore {',
             'if UserDefaults.sideStoreExist() || store == .AltStore || store == .SideStore {', 1)
+    replace(settings, '            }\n        }\n        \n        let storeScheme : String',
+            '            }\n            return // cancelling the built-in import must not open another store\n        }\n        \n        let storeScheme : String', 1)
     # This developer-only upstream button would remove SideStore integration,
     # not our embedded app. Do not offer it in this flavour.
     replace(settings, 'Button {\n                            Task { await nukeSideStore() }\n                        } label: {\n                            Text("Nuke SideStore")\n                        }',
@@ -118,7 +120,27 @@ def prepare(root):
             f"APP_GROUP_ALTSTORE = group.{HOST_ID}.shared$(DEVELOPMENT_TEAM_SUFFIX)", 1)
     for path in (root / "LiveContainer/LCSharedUtils.m",):
         replace(path, '@"livecontainer", @"livecontainer2", @"livecontainer3"',
-                f'@"{HOST_SCHEME}", @"livecontainer", @"livecontainer2", @"livecontainer3"', 1)
+                f'@"{HOST_SCHEME}"', 1)
+        replace(path, 'group.com.SideStore.SideStore.', f'group.{HOST_ID}.', 1)
+        replace(path, 'group.com.rileytestut.AltStore.', f'group.{HOST_ID}.shared.', 1)
+    replace(root / "LiveContainerSwiftUI/Utilities/Shared.swift",
+            '"group.com.SideStore.SideStore"', f'"group.{HOST_ID}"', 1)
+    # Keychain groups must also be isolated from a stock LC signed by the same
+    # team. Adapt both the declared groups and the guest-keychain hook.
+    for relative in ("entitlements.xml", "LiveProcess/LiveProcess.entitlements",
+                     "LiveContainer/Tweaks/SecItem.m",
+                     "LiveContainerSwiftUI/Views/Settings/LCJITLessDiagnoseView.swift"):
+        replace(root / relative, "com.kdt.livecontainer.shared", HOST_ID + ".shared")
+    for relative in ("LiveContainerSwiftUI/Models/LCAppInfo.m",
+                     "LiveContainerSwiftUI/Views/AppList/LCAppBanner/LCAppBannerViewController.swift"):
+        replace(root / relative, "livecontainer://livecontainer-launch", HOST_SCHEME + "://livecontainer-launch", 2)
+    management = root / "LiveContainerSwiftUI/Views/Settings/LCMultiLCManagementView.swift"
+    replace(management,
+            '    LaunchPriorityLC(scheme: "livecontainer", displayName: "LiveContainer"),\n'
+            '    LaunchPriorityLC(scheme: "livecontainer2", displayName: "LiveContainer2"),\n'
+            '    LaunchPriorityLC(scheme: "livecontainer3", displayName: "LiveContainer3")',
+            f'    LaunchPriorityLC(scheme: "{HOST_SCHEME}", displayName: "LiveContainer + SI")', 1)
+    replace(management, 'if scheme == "livecontainer"', f'if scheme == "{HOST_SCHEME}"', 1)
 
     def host_plist(data):
         data["CFBundleDisplayName"] = "LiveContainer + SI"

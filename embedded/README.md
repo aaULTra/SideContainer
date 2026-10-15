@@ -90,6 +90,12 @@ The dedicated workflow builds the native SideInstaller target with
 then runs `embedded/package.py`. The normal standalone target has no embedded
 dependency and remains buildable without that flag/header.
 
+The unsigned IPA carries ad-hoc entitlement templates with upstream's dummy
+team placeholder, not a real signing identity. The installer must replace
+that placeholder with your team and preserve the requested app/keychain
+groups and extensions. The packager verifies these signing requests after
+embedding; it does not grant capabilities your profile does not allow.
+
 Run packaging regression checks with:
 
 ```sh

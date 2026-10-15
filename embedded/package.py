@@ -11,6 +11,25 @@ from pathlib import Path
 HOST_ID = "com.aault.livecontainer.sideinstaller"
 
 
+def entitlement_template(path, bundle_id):
+    # This is upstream's ad-hoc placeholder, not a signing account. Resigning
+    # must replace it with the user's actual development team and profile.
+    text = path.read_text()
+    for key, value in {
+        "$(DEVELOPMENT_TEAM)": "AAAAA11111", "$(AppIdentifierPrefix)": "AAAAA11111.",
+        "$(PRODUCT_BUNDLE_IDENTIFIER)": bundle_id,
+        "$(APP_GROUP_SIDESTORE)": "group." + HOST_ID,
+        "$(APP_GROUP_ALTSTORE)": "group." + HOST_ID + ".shared",
+    }.items():
+        text = text.replace(key, value)
+    data = plistlib.loads(text.encode())
+    data["application-identifier"] = "AAAAA11111." + bundle_id
+    data["com.apple.developer.team-identifier"] = "AAAAA11111"
+    assert "$(" not in json.dumps(data), "Unresolved signing template macro"
+    assert "com.kdt.livecontainer.shared" not in json.dumps(data)
+    return data
+
+
 def update_plist(path, change):
     with path.open("rb") as stream:
         data = plistlib.load(stream)
@@ -85,6 +104,24 @@ def package(host, guest, output, dylibify, upstream):
     notices.mkdir()
     shutil.copyfile(upstream / "LICENSE", notices / "LiveContainer-LICENSE")
     shutil.copyfile(Path(__file__).resolve().parent.parent / "LICENSE.md", notices / "SideInstaller-LICENSE.md")
+    # Preserve LC's signing requests in ad-hoc signatures. A build with signing
+    # disabled alone would lose app/keychain groups that IPA resigners read.
+    templates = [(app, upstream / "entitlements.xml")]
+    for extension in (app / "PlugIns").glob("*.appex"):
+        source = upstream / extension.stem / (extension.stem + ".entitlements")
+        if source.exists():
+            templates.append((extension, source))
+    for bundle, source in templates:
+        data = plistlib.loads((bundle / "Info.plist").read_bytes())
+        template = entitlement_template(source, data["CFBundleIdentifier"])
+        location = notices / (bundle.stem + "-entitlements.plist")
+        location.write_bytes(plistlib.dumps(template))
+        executable = bundle / data["CFBundleExecutable"]
+        subprocess.run(["ldid", "-S" + str(location), str(executable)], check=True)
+        recovered = plistlib.loads(subprocess.check_output(["ldid", "-e", str(executable)]))
+        assert recovered == template, "Signing entitlement template was not preserved"
+    report["isolatedSigningEntitlementsVerified"] = True
+    (output / "verification.json").write_text(json.dumps(report, indent=2) + "\n")
     subprocess.run(["ditto", "-c", "-k", "--keepParent", "Payload", "LiveContainer-SideInstaller-unsigned.ipa"],
                    cwd=output, check=True)
 

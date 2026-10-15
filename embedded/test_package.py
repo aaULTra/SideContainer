@@ -73,6 +73,17 @@ class PackageTests(unittest.TestCase):
         with self.assertRaises(AssertionError):
             package.verify(self.app)
 
+    def test_entitlement_templates_resolve_to_isolated_groups(self):
+        path = Path(self.temp.name) / "template.plist"
+        path.write_bytes(plistlib.dumps({
+            "application-identifier": "$(DEVELOPMENT_TEAM).$(PRODUCT_BUNDLE_IDENTIFIER)",
+            "com.apple.security.application-groups": ["$(APP_GROUP_SIDESTORE)", "$(APP_GROUP_ALTSTORE)"],
+            "keychain-access-groups": ["$(AppIdentifierPrefix)" + package.HOST_ID + ".shared"],
+        }))
+        result = package.entitlement_template(path, package.HOST_ID)
+        self.assertEqual(result["com.apple.security.application-groups"][0], "group." + package.HOST_ID)
+        self.assertNotIn("$(", json.dumps(result))
+
 
 if __name__ == "__main__":
     unittest.main()
