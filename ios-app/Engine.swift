@@ -2229,10 +2229,10 @@ final class Engine: ObservableObject {
         try await AppRefreshService.shared.withExclusiveOperation {
             let host = try EmbeddedSigningIdentity.host()
             guard let revision = host.bundle.object(forInfoDictionaryKey: "SIEmbeddedSourceRevision") as? String,
-                  let ipa = IPALibrary.installable().first(where: {
-                      $0.info.bundleID == EmbeddedSigningIdentity.baseID
-                        && IPALibrary.embeddedRevision(at: $0.entry.url) == revision
-                  })?.entry.url else {
+                  let ipa = IPALibrary.scan().first(where: {
+                      IPALibrary.appInfo(at: $0.url)?.bundleID == EmbeddedSigningIdentity.baseID
+                        && IPALibrary.embeddedRevision(at: $0.url) == revision
+                  })?.url else {
                 throw EngineError.message("Import this updated build's original unsigned combined IPA using Custom .ipa first. Repair requires the exact build currently installed, with all extensions retained.")
             }
             try await self.prepareRefresh()
@@ -2765,6 +2765,12 @@ final class Engine: ObservableObject {
             }
             let profile = try EmbeddedSigningIdentity.profile(at: bundle)
             let host = try EmbeddedSigningIdentity.host()
+            guard let oldExecutable = host.bundle.executablePath,
+                  let oldXML = SIEmbeddedEntitlementsAtPath(oldExecutable),
+                  let oldEntitlements = try PropertyListSerialization.propertyList(from: Data(oldXML.utf8), format: nil) as? [String: Any],
+                  let oldGroups = oldEntitlements["keychain-access-groups"] as? [String] else {
+                throw EngineError.message("Repair stopped: the current host's keychain groups could not be read. Nothing was installed.")
+            }
             var bundles = [bundle]
             if let plugins = bundle.builtInPlugInsURL {
                 bundles += try FileManager.default.contentsOfDirectory(at: plugins, includingPropertiesForKeys: nil)
@@ -2785,6 +2791,13 @@ final class Engine: ObservableObject {
                       (entitlements["com.apple.security.application-groups"] as? [String] ?? [])
                         .contains("group." + host.id) else {
                     throw EngineError.message("Repair stopped: \(target.bundleURL.lastPathComponent) is missing its expected identity, development entitlement, shared app group or 128 isolated keychain groups. Nothing was installed.")
+                }
+                if target.bundleIdentifier == host.id,
+                   let newGroups = entitlements["keychain-access-groups"] as? [String] {
+                    let missing = oldGroups.filter { !newGroups.contains($0) }
+                    guard missing.isEmpty else {
+                        throw EngineError.message("Repair stopped to preserve Keychain access. The installed host has groups the new signature cannot retain: \(missing.joined(separator: ", ")). Nothing was installed.")
+                    }
                 }
             }
             // Re-read the identity that was just exported; ensure the newly

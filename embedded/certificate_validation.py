@@ -57,6 +57,17 @@ def patch(root, replace):
             '[NSString stringWithFormat:@"Revocation server returned HTTP %ld or no response data", (long)httpResponse.statusCode]);', 1)
 
     diagnose = root / "LiveContainerSwiftUI/Views/Settings/LCJITLessDiagnoseView.swift"
+    settings = root / "LiveContainerSwiftUI/Views/Settings/LCSettingsView.swift"
+    replace(settings, '    func onSideStoreCertificateCallback(certificateData: Data, password: String) {',
+            '    func onSideStoreCertificateCallback(certificateData: Data, password: String) {\n'
+            '        guard let team = LCUtils.getCertTeamId(withKeyData: certificateData, password: password) else {\n'
+            '            errorInfo = "The shared certificate/private key could not be decoded with its password. The existing certificate was kept."\n'
+            '            errorShow = true; return\n'
+            '        }\n'
+            '        guard team == LCSharedUtils.teamIdentifier() else {\n'
+            '            errorInfo = "Shared certificate team: \\(team). Host team: \\(LCSharedUtils.teamIdentifier() ?? "unavailable"). The existing certificate was kept."\n'
+            '            errorShow = true; return\n'
+            '        }', 1)
     replace(diagnose, '        LCUtils.validateCertificate { status, date, ou, error in\n',
             '        LCUtils.validateCertificate { status, date, ou, error in\n'
             '            if let ou { certTeamId = ou }\n'
@@ -72,12 +83,14 @@ def patch(root, replace):
             '    [NSUserDefaults.standardUserDefaults setObject:@"No readable ARM64 code signature found." forKey:@"SILastSignatureError"];', 1)
     replace(macho, '        if ( addFileSigsReault == -1 ) {',
             '        if ( addFileSigsReault == -1 ) {\n'
-            '            [NSUserDefaults.standardUserDefaults setObject:[NSString stringWithFormat:@"F_ADDFILESIGS_RETURN failed: errno %d (%s)", errno, strerror(errno)] forKey:@"SILastSignatureError"];', 1)
+            '            int savedErrno = errno;\n'
+            '            [NSUserDefaults.standardUserDefaults setObject:[NSString stringWithFormat:@"F_ADDFILESIGS_RETURN failed: errno %d (%s)", savedErrno, strerror(savedErrno)] forKey:@"SILastSignatureError"];', 1)
     replace(macho, '        int checkLVresult = fcntl(fd, F_CHECK_LV, &checkInfo);',
             '        int checkLVresult = fcntl(fd, F_CHECK_LV, &checkInfo);\n'
             '        if (checkLVresult != 0) {\n'
+            '            int savedErrno = errno;\n'
             '            NSString *detail = [[NSString alloc] initWithBytes:messageBuffer length:strnlen(messageBuffer, sizeof(messageBuffer)) encoding:NSUTF8StringEncoding];\n'
-            '            [NSUserDefaults.standardUserDefaults setObject:[NSString stringWithFormat:@"F_CHECK_LV failed: errno %d (%s). %@", errno, strerror(errno), detail ?: @"No library-validation message"] forKey:@"SILastSignatureError"];\n'
+            '            [NSUserDefaults.standardUserDefaults setObject:[NSString stringWithFormat:@"F_CHECK_LV failed: errno %d (%s). %@", savedErrno, strerror(savedErrno), detail ?: @"No library-validation message"] forKey:@"SILastSignatureError"];\n'
             '        }', 1)
     utils = root / "LiveContainerSwiftUI/Utilities/LCUtils.m"
     replace(utils, '@"lc.signer.latestCertificateInvalidErr"',

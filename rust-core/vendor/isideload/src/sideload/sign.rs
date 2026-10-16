@@ -131,6 +131,14 @@ fn entitlements(
             )));
         }
 
+        if embedded_host {
+            // Preserve items a sideloader put in this host's own default group.
+            // Never add stock LC's groups or a wildcard to the isolated host.
+            if let Some(app_id) = entitlements.get("application-identifier").and_then(plist::Value::as_string) {
+                keychain_access.push(plist::Value::String(app_id.to_owned()));
+            }
+        }
+
         entitlements.insert(
             "keychain-access-groups".to_string(),
             plist::Value::Array(keychain_access),
