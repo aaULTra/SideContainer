@@ -90,16 +90,14 @@ final class SIEmbeddedBridge: NSObject {
 
     /// Keychain hand-off stays within this combined app's access groups. Apple
     /// account passwords and developer-session tokens are never handed to LC.
-    static func storeCertificate(config: String, signingTeam: String?) throws {
-        guard let team = signingTeam, let host = SIEmbeddedHostTeam(), team == host else {
-            throw EngineError.message("The signed-in team must match this LiveContainer's signing team before sharing its certificate.")
-        }
+    static func storeCertificate(config: String, signingTeam: String?) throws -> String {
         guard let json = try JSONSerialization.jsonObject(with: Data(config.utf8)) as? [String: Any],
               let encoded = json["certificateData"] as? String,
               let certificate = Data(base64Encoded: encoded),
               let password = json["certificatePassword"] as? String else {
             throw EngineError.message("SideInstaller could not export its signing certificate.")
         }
+        let report = try EmbeddedSigningIdentity.report(p12: certificate, password: password, team: signingTeam)
         for (account, data) in [("signingCertificate", certificate),
                                 ("signingCertificatePassword", Data(password.utf8))] {
             let query: [String: Any] = [
@@ -121,6 +119,7 @@ final class SIEmbeddedBridge: NSObject {
                 throw EngineError.message("Certificate Keychain update failed (\(status)).")
             }
         }
+        return "Certificate shared. Return to LiveContainer → Settings → Import Certificate from SideInstaller.\n\n" + report
     }
 }
 
@@ -128,6 +127,7 @@ struct EmbeddedLiveContainerBar: View {
     @EnvironmentObject private var engine: Engine
     @State private var working = false
     @State private var message: String?
+    @State private var confirmRepair = false
 
     var body: some View {
         HStack {
@@ -141,16 +141,32 @@ struct EmbeddedLiveContainerBar: View {
                 Task { @MainActor in
                     defer { working = false }
                     do {
-                        try await engine.shareCertificateWithLiveContainer()
-                        message = "Certificate shared. Return to LiveContainer → Settings → Import Certificate from SideInstaller."
+                        message = try await engine.shareCertificateWithLiveContainer()
                     } catch { message = AppRefreshService.text(for: error) }
                 }
             }
             .disabled(working || engine.isRunning || AppRefreshService.shared.isRefreshing)
+            Button("Repair host signing") { confirmRepair = true }
+                .disabled(working || engine.isRunning || AppRefreshService.shared.isRefreshing)
         }
         .font(.footnote)
         .padding()
         .background(.regularMaterial)
+        .confirmationDialog("Re-sign this LiveContainer with SideInstaller's identity?", isPresented: $confirmRepair,
+                            titleVisibility: .visible) {
+            Button("Repair host signing") {
+                working = true
+                Task { @MainActor in
+                    defer { working = false }
+                    do {
+                        try await engine.repairEmbeddedHostSigning()
+                        message = "Host replacement reported completion. Close and reopen LiveContainer, import the shared certificate and test JIT-less mode."
+                    } catch { message = AppRefreshService.text(for: error) }
+                }
+            }
+        } message: {
+            Text("Uses the exact original IPA from your library and the same installed bundle ID/team. Replacing this running app may close it before confirmation. Reopen and verify before retrying. Back up important guest data first.")
+        }
         .alert("LiveContainer + SideInstaller", isPresented: Binding(
             get: { message != nil }, set: { if !$0 { message = nil } })) {
                 Button("OK") { message = nil }

@@ -10,6 +10,7 @@ import plistlib
 import shutil
 import subprocess
 from pathlib import Path
+from certificate_validation import patch as patch_certificate_validation
 
 LIVE_CONTAINER_COMMIT = "4dbe0f9a626de801184a42c0be8d2cb105058e3d"
 HOST_ID = "com.aault.livecontainer.sideinstaller"
@@ -78,6 +79,13 @@ def prepare(root):
             '        connection.invalidationHandler = cancelRefresh;', 1)
 
     utils = root / "LiveContainerSwiftUI/Utilities/LCUtils.m"
+    replace(root / "LiveContainer/LCSharedUtils.h", '@interface LCSharedUtils : NSObject',
+            '@interface LCSharedUtils : NSObject\n+ (NSString *)embeddedEntitlementsAtPath:(NSString *)path;', 1)
+    replace(root / "LiveContainer/LCSharedUtils.m", '#import "LCSharedUtils.h"',
+            '#import "LCSharedUtils.h"\n#import "LCMachOUtils.h"', 1)
+    replace(root / "LiveContainer/LCSharedUtils.m", '@implementation LCSharedUtils',
+            '@implementation LCSharedUtils\n+ (NSString *)embeddedEntitlementsAtPath:(NSString *)path {\n'
+            '    return getExecutableEntitlementXML(path);\n}\n', 1)
     replace(utils, "// use uttype to accurately detect store",
             "// This flavour has a built-in SideInstaller. The enum is an upstream UI detail.\n"
             "        if (NSUserDefaults.sideStoreExist) { ans = SideStore; return; }\n"
@@ -160,6 +168,7 @@ def prepare(root):
         data["NSSupportsLiveActivities"] = True
         data["SIEmbeddedBuild"] = True
     edit_plist(root / "LiveContainer/Info.plist", host_plist)
+    patch_certificate_validation(root, replace)
     (root / ".sideinstaller-adapted").write_text(LIVE_CONTAINER_COMMIT + "\n")
 
 

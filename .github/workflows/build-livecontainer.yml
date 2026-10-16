@@ -44,6 +44,8 @@ jobs:
         run: |
           python3 -m unittest discover -s embedded -p 'test_*.py' -v
           python3 embedded/prepare_livecontainer.py vendor-livecontainer
+          swiftc -D SIDEINSTALLER_EMBEDDED ios-app/EmbeddedSigningIdentity.swift embedded/IdentityTests.swift -o /tmp/si-identity-tests
+          /tmp/si-identity-tests
           python3 - <<'PY'
           import yaml
           from pathlib import Path
@@ -96,6 +98,8 @@ jobs:
             -derivedDataPath build-embedded-si MARKETING_VERSION=1.5.2 \
             CODE_SIGNING_ALLOWED=NO CODE_SIGNING_REQUIRED=NO build 2>&1 | tee embedded-guest.log
       - name: Convert embedded executable and verify combined IPA
+        env:
+          SI_SOURCE_REVISION: ${{ github.event.pull_request.head.sha || github.sha }}
         run: |
           curl --fail --location --retry 3 \
             https://github.com/LiveContainer/dylibify/releases/download/1.0/dylibify -o dylibify

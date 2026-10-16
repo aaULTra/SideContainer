@@ -14,6 +14,23 @@ NSString *SIEmbeddedHostTeam(void) {
     return ((NSString *(*)(id, SEL))objc_msgSend)(cls, selector);
 }
 
+NSBundle *SIEmbeddedHostBundle(void) {
+    SEL selector = NSSelectorFromString(@"lcMainBundle");
+    if (![NSUserDefaults respondsToSelector:selector]) return nil;
+    NSBundle *bundle = ((NSBundle *(*)(id, SEL))objc_msgSend)(NSUserDefaults.class, selector);
+    if (SIEmbeddedIsLiveProcess()) {
+        bundle = [NSBundle bundleWithURL:bundle.bundleURL.URLByDeletingLastPathComponent.URLByDeletingLastPathComponent];
+    }
+    return bundle;
+}
+
+NSString *SIEmbeddedEntitlementsAtPath(NSString *path) {
+    Class cls = NSClassFromString(@"LCSharedUtils");
+    SEL selector = NSSelectorFromString(@"embeddedEntitlementsAtPath:");
+    if (![cls respondsToSelector:selector]) return nil;
+    return ((NSString *(*)(id, SEL, id))objc_msgSend)(cls, selector, path);
+}
+
 void SIEmbeddedReturnToHost(void) {
     Class cls = NSClassFromString(@"LCSharedUtils");
     SEL selector = NSSelectorFromString(@"launchToGuestAppWithClassicMode:");

@@ -2,6 +2,7 @@
 """Package a native SideInstaller build into an adapted LiveContainer host."""
 import argparse
 import json
+import os
 import plistlib
 import shutil
 import struct
@@ -90,6 +91,7 @@ def package(host, guest, output, dylibify, upstream):
         for key in ("LSApplicationQueriesSchemes", "NSBonjourServices", "UIBackgroundModes"):
             data[key] = list(dict.fromkeys(data.get(key, []) + guest_info.get(key, [])))
         data["SIEmbeddedGuestVersion"] = guest_info["CFBundleShortVersionString"]
+        data["SIEmbeddedSourceRevision"] = os.environ.get("SI_SOURCE_REVISION", "local-evaluation")
     update_plist(app / "Info.plist", merge_guest_permissions)
 
     for signature in list(app.rglob("_CodeSignature")):

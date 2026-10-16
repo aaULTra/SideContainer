@@ -72,6 +72,39 @@ Do not revoke certificates or change identities to try to fix that check.
 6. In Shortcuts use this combined app's **Refresh All Apps** action. Test with
    the combined app closed, missing VPN, cancellation, and a failing test app.
 
+## Certificate mismatch / host repair
+
+**Share signing certificate** now reads the selected team from the actual
+signing session and compares it with the installed host's profile. Missing
+host metadata, unavailable teams and different teams produce distinct errors
+with the public team IDs. It also compares the exported leaf certificate's
+DER bytes with the host profile's `DeveloperCertificates` and shows a SHA-256
+fingerprint. Same team alone does not mean the certificate is authorised.
+
+If it reports a certificate mismatch, import **this exact updated build's
+original unsigned combined IPA** with Custom .ipa, then tap **Repair host
+signing**. A confirmation explains that the running app may close. Repair
+uses the existing `prepareRefresh` / `refreshInstalledApp` signing and tunnel
+installation pipeline; it does not revoke/create a certificate itself.
+
+Repair refuses a different source revision, bundle ID, team, missing embedded
+app/LiveProcess, a new profile that does not authorise the signing certificate,
+or signatures lacking development/app-group/128-keychain-group entitlements.
+The signer requests the custom host's isolated keychain groups only for that
+marked bundle. Other apps retain their existing signing behaviour.
+
+After replacement, reopen the host, import the shared certificate, and test
+JIT-less mode. Do not uninstall: a successful same-ID update is intended to
+preserve data. Back up important guest data before testing this experimental
+repair. Host replacement, extension behaviour and data preservation still
+need hardware verification. If SideStore later refreshes the host with a
+different identity it can reintroduce the mismatch.
+
+Certificate diagnostics now decode the revocation URL using its ASN.1 byte
+length and preserve the locally decoded team/expiry on network failures.
+Revocation failures stay **Unknown**, never Valid. JIT-less signature errors
+include the failing kernel-validation stage, errno and available message.
+
 ## Deliberate limits / tests still required
 
 - A successful build and metadata/layout verification are **not a device test**.
