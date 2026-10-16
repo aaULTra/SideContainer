@@ -125,6 +125,14 @@ def prepare(root):
         replace(path, 'group.com.rileytestut.AltStore.', f'group.{HOST_ID}.shared.', 1)
     replace(root / "LiveContainerSwiftUI/Utilities/Shared.swift",
             '"group.com.SideStore.SideStore"', f'"group.{HOST_ID}"', 1)
+    # A custom scheme is still a primary host. Upstream otherwise classifies
+    # every non-stock scheme as LC2 and disables certificate/signing settings.
+    replace(root / "LiveContainerSwiftUI/Utilities/Shared.swift",
+            'if LCUtils.appUrlScheme()?.lowercased() != "livecontainer" {',
+            f'if LCUtils.appUrlScheme()?.lowercased() != "{HOST_SCHEME}" {{', 1)
+    diagnostics = root / "LiveContainerSwiftUI/Views/Settings/LCJITLessDiagnoseView.swift"
+    replace(diagnostics, 'fetchedAppGroupId == "group.com.SideStore.SideStore." + teamId',
+            f'fetchedAppGroupId == "group.{HOST_ID}." + teamId', 1)
     # Keychain groups must also be isolated from a stock LC signed by the same
     # team. Adapt both the declared groups and the guest-keychain hook.
     for relative in ("entitlements.xml", "LiveProcess/LiveProcess.entitlements",

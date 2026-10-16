@@ -43,6 +43,17 @@ This does **not** replace stock LiveContainer or move its existing guest data.
 Do not change the bundle ID to overwrite your real installation as a shortcut
 to migration. Back up guest data before any future migration experiment.
 
+The custom URL scheme is registered as a **primary** LiveContainer in the
+host's mode detection. It must not select LC2: that mode hides primary-host
+certificate/signing settings. An older experimental build misclassified this
+scheme; update the same app (same signing team/bundle ID) to correct it.
+
+If JIT-less diagnostics report incorrect keychain groups after sideloading,
+copy the installed entitlement plist from **LiveContainer Entitlements** and
+**LiveProcess Entitlements** before changing signing settings. The unsigned
+IPA's templates do not prove which groups the installer actually retained.
+Do not revoke certificates or change identities to try to fix that check.
+
 ## First device test
 
 1. Download `LiveContainer-SideInstaller-experimental` from the successful
