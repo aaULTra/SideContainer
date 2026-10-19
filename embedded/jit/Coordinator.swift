@@ -1,6 +1,5 @@
-// SPDX-License-Identifier: GPL-3.0-or-later
-// Appended to LCUtilsExtensions.swift by the checked host adaptation so this
-// source is compiled by the existing explicit Xcode project target.
+// SPDX-License-Identifier: AGPL-3.0-or-later
+// Copied into the UI framework's synchronized Xcode group by the checked adaptation.
 import Foundation
 import SwiftUI
 import UniformTypeIdentifiers
@@ -86,7 +85,9 @@ final class SIBuiltInJIT: ObservableObject {
               FileManager.default.containerURL(forSecurityApplicationGroupIdentifier: group) != nil else {
             throw Self.error("This installation's app group is unavailable.")
         }
-        let pairing = operation == .reset ? nil : try Data(contentsOf: pairingURL)
+        let pairing: Data?
+        if operation == .reset { pairing = nil }
+        else { pairing = try Data(contentsOf: pairingURL) }
         if NSClassFromString("NSExtension") == nil {
             dlopen("/System/Library/Frameworks/ExtensionFoundation.framework/ExtensionFoundation", RTLD_NOW)
         }

@@ -49,6 +49,14 @@ def package(host, guest, output, dylibify, upstream, jit_products, jit_source):
     shutil.copytree(host, app)
     shutil.copytree(jit_products / "SIJITHelper.appex", app / "PlugIns/SIJITHelper.appex")
     shutil.copytree(jit_products / "StikJIT.framework", app / "Frameworks/StikJIT.framework")
+    host_info = plistlib.loads((app / "Info.plist").read_bytes())
+    update_plist(app / "PlugIns/SIJITHelper.appex/Info.plist", lambda data: data.update({
+        key: host_info[key] for key in ("CFBundleVersion", "CFBundleShortVersionString")}))
+    helper_binary = app / "PlugIns/SIJITHelper.appex/SIJITHelper"
+    if "@rpath/StikJIT.framework/StikJIT" not in subprocess.check_output(["otool", "-L", str(helper_binary)], text=True):
+        raise ValueError("The debugger helper is not linked to the bundled StikJIT framework.")
+    if "@executable_path/../../Frameworks" not in subprocess.check_output(["otool", "-l", str(helper_binary)], text=True):
+        raise ValueError("The debugger helper cannot resolve the framework in the host's Frameworks directory.")
     framework = app / "Frameworks/SideInstallerApp.framework"
     shutil.copytree(guest, framework)
     binary = framework / "SideInstaller"

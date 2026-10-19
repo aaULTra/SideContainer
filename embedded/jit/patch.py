@@ -1,5 +1,6 @@
 """Checked integration into the pinned host's existing compilation units."""
 from pathlib import Path
+import shutil
 
 
 def patch(root, replace):
@@ -12,9 +13,10 @@ def patch(root, replace):
             '                    if JITEnabler == .BuiltInStikJIT { SIBuiltInJITSettings() }\n'
             '                    if JITEnabler == .SideJITServer ||', 1)
     utilities = root / "LiveContainerSwiftUI/Utilities/LCUtilsExtensions.swift"
-    # Already an explicit PBXSourcesBuildPhase member, unlike a newly dropped file.
-    with utilities.open("a") as stream:
-        stream.write("\n" + (here / "Messages.swift").read_text() + "\n" + (here / "Coordinator.swift").read_text())
+    # This pinned project's LiveContainerSwiftUI directory is a
+    # PBXFileSystemSynchronizedRootGroup assigned to the UI framework target.
+    for name in ("Messages.swift", "Coordinator.swift"):
+        shutil.copyfile(here / name, root / "LiveContainerSwiftUI/Utilities" / ("SIJIT" + name))
 
     model = root / "LiveContainerSwiftUI/Models/LCAppModel.swift"
     replace(model,
