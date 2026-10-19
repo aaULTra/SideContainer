@@ -4,10 +4,11 @@
 
 Settings → JIT → **Built-in StikJIT (experimental)** enables an invisible
 `SIJITHelper.appex` bundled in the actual host. StikJIT is built from pinned
-unmodified sources at `32287268fa5824f9edce4cb359f5833ce0cf7b00`:
+sources at `32287268fa5824f9edce4cb359f5833ce0cf7b00`, with one checked lifetime fix
+to hold ScriptRunner alive through its synchronous JavaScript callbacks:
 <https://github.com/StikDebug/StikJIT>. The framework is linked only into the
 helper and stored in the host's Frameworks directory. Its MPL license and
-source reference travel in EmbeddedSourceNotices.
+source reference and modified MPL source travel in EmbeddedSourceNotices.
 
 Import a valid pairing plist in the JIT section, enable Developer Mode, and
 connect LocalDevVPN. Keep **all app extensions** when signing the IPA. Mark the

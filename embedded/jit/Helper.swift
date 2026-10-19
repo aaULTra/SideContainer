@@ -73,6 +73,7 @@ final class SIJITHelperHandler: NSObject, NSExtensionRequestHandling {
             case .mountingDDI(let fraction): report("Mounting Developer Disk Image: \(Int(fraction * 100))%")
             case .verifyingDDI: report("Verifying Developer Disk Image…")
             case .ready: report("Device prepared. Waiting for the guest's JIT protocol…")
+            @unknown default: report("Preparing JIT device…")
             }
         }
         if request.operation == .prepare {
@@ -81,6 +82,7 @@ final class SIJITHelperHandler: NSObject, NSExtensionRequestHandling {
                 let txm = security.isTXMPresent.map { $0 ? "present" : "absent" } ?? "unknown"
                 return .init(success: true, message: "Device prepared (TXM \(txm)). Guest JIT is not enabled yet.")
             case .unreachable(let reason), .preparationFailed(let reason): throw error(reason)
+            @unknown default: throw error("StikJIT returned an unknown preparation result.")
             }
         }
         guard let pid = request.pid, pid > 0, pid != getpid() else { throw error("Invalid guest PID.") }

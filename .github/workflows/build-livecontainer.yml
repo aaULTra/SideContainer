@@ -91,6 +91,7 @@ jobs:
         run: |
           set -o pipefail
           python3 embedded/build_jit.py vendor-stikjit
+          python3 embedded/check_script_runner.py vendor-stikjit
           xcodegen generate --spec vendor-stikjit/project.yml --project vendor-stikjit
           xcodebuild -project vendor-stikjit/StikJIT.xcodeproj -scheme SIJITHelper \
             -configuration Release -sdk iphoneos -arch arm64 \
