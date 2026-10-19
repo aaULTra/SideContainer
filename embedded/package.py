@@ -39,7 +39,7 @@ def update_plist(path, change):
         plistlib.dump(data, stream, sort_keys=False)
 
 
-def package(host, guest, output, dylibify, upstream):
+def package(host, guest, output, dylibify, upstream, jit_products, jit_source):
     output.mkdir(parents=True, exist_ok=True)
     payload = output / "Payload"
     if payload.exists():
@@ -47,6 +47,8 @@ def package(host, guest, output, dylibify, upstream):
     payload.mkdir()
     app = payload / "LiveContainer.app"
     shutil.copytree(host, app)
+    shutil.copytree(jit_products / "SIJITHelper.appex", app / "PlugIns/SIJITHelper.appex")
+    shutil.copytree(jit_products / "StikJIT.framework", app / "Frameworks/StikJIT.framework")
     framework = app / "Frameworks/SideInstallerApp.framework"
     shutil.copytree(guest, framework)
     binary = framework / "SideInstaller"
@@ -106,9 +108,16 @@ def package(host, guest, output, dylibify, upstream):
     notices.mkdir()
     shutil.copyfile(upstream / "LICENSE", notices / "LiveContainer-LICENSE")
     shutil.copyfile(Path(__file__).resolve().parent.parent / "LICENSE.md", notices / "SideInstaller-LICENSE.md")
+    shutil.copyfile(jit_source / "LICENSE", notices / "StikJIT-MPL-2.0-LICENSE")
+    shutil.copyfile(jit_source / "README.md", notices / "StikJIT-README.md")
+    (notices / "StikJIT-SOURCE.txt").write_text(
+        "StikJIT sources: https://github.com/StikDebug/StikJIT/tree/32287268fa5824f9edce4cb359f5833ce0cf7b00\n"
+        "Framework built from these unmodified sources. Bundled idevice FFI and scripts retain upstream licenses.\n"
+        "Integration source: https://github.com/aaULTra/SideInstaller/tree/feature/livecontainer-sideinstaller/embedded/jit\n")
     # Preserve LC's signing requests in ad-hoc signatures. A build with signing
     # disabled alone would lose app/keychain groups that IPA resigners read.
     templates = [(app, upstream / "entitlements.xml")]
+    templates.append((app / "PlugIns/SIJITHelper.appex", jit_source / "SIJITHelper.entitlements"))
     for extension in (app / "PlugIns").glob("*.appex"):
         source = upstream / extension.stem / (extension.stem + ".entitlements")
         if source.exists():
@@ -136,6 +145,14 @@ def verify(app):
     assert not (app / "Frameworks/SideStoreApp.framework").exists(), "Do not ship an unused SideStore app"
     assert not (guest / "PlugIns").exists(), "Nested app extensions are not installable"
     assert (app / "PlugIns/LiveProcess.appex").is_dir()
+    helper = app / "PlugIns/SIJITHelper.appex"
+    assert helper.is_dir(), "Built-in JIT helper must be embedded in the actual host"
+    helper_info = plistlib.loads((helper / "Info.plist").read_bytes())
+    assert helper_info["NSExtension"]["NSExtensionPrincipalClass"] == "SIJITHelperHandler"
+    assert not (helper / "Frameworks").exists(), "JIT framework must live at host Frameworks"
+    jit = app / "Frameworks/StikJIT.framework"
+    assert (jit / "StikJIT").is_file()
+    assert (jit / "universal.js").is_file(), "Universal script must be bundled"
     assert struct.unpack_from("<I", (guest / "SideInstaller").read_bytes(), 12)[0] == 6
     for extension in (app / "PlugIns").glob("*.appex"):
         extension_info = plistlib.loads((extension / "Info.plist").read_bytes())
@@ -150,13 +167,14 @@ def verify(app):
     assert "com.apple.link.systemProtocol.ForegroundContinuable" in protocols
     assert "com.apple.link.systemProtocol.ProgressReporting" in protocols
     return {"host": HOST_ID, "guest": "SideInstaller", "containsSideStoreApp": False,
-            "nativeRefreshIntent": True, "extensions": sorted(x.name for x in (app / "PlugIns").glob("*.appex")),
+            "nativeRefreshIntent": True, "builtInGuestJIT": True,
+            "extensions": sorted(x.name for x in (app / "PlugIns").glob("*.appex")),
             "runtimeDeviceTests": "required; compile/package checks do not prove device execution"}
 
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description=__doc__)
-    for name in ("host", "guest", "output", "dylibify", "upstream"):
+    for name in ("host", "guest", "output", "dylibify", "upstream", "jit-products", "jit-source"):
         parser.add_argument("--" + name, type=Path, required=True)
     args = parser.parse_args()
-    package(*(getattr(args, key).resolve() for key in ("host", "guest", "output", "dylibify", "upstream")))
+    package(*(getattr(args, key).resolve() for key in ("host", "guest", "output", "dylibify", "upstream", "jit_products", "jit_source")))

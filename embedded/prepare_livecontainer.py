@@ -11,6 +11,7 @@ import shutil
 import subprocess
 from pathlib import Path
 from certificate_validation import patch as patch_certificate_validation
+from jit.patch import patch as patch_jit
 
 LIVE_CONTAINER_COMMIT = "4dbe0f9a626de801184a42c0be8d2cb105058e3d"
 HOST_ID = "com.aault.livecontainer.sideinstaller"
@@ -169,6 +170,7 @@ def prepare(root):
         data["SIEmbeddedBuild"] = True
     edit_plist(root / "LiveContainer/Info.plist", host_plist)
     patch_certificate_validation(root, replace)
+    patch_jit(root, replace)
     (root / ".sideinstaller-adapted").write_text(LIVE_CONTAINER_COMMIT + "\n")
 
 

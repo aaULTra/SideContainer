@@ -1,5 +1,43 @@
 # LiveContainer + SideInstaller (experimental embedded flavour)
 
+## Built-in guest JIT (experimental)
+
+Settings → JIT → **Built-in StikJIT (experimental)** enables an invisible
+`SIJITHelper.appex` bundled in the actual host. StikJIT is built from pinned
+unmodified sources at `32287268fa5824f9edce4cb359f5833ce0cf7b00`:
+<https://github.com/StikDebug/StikJIT>. The framework is linked only into the
+helper and stored in the host's Frameworks directory. Its MPL license and
+source reference travel in EmbeddedSourceNotices.
+
+Import a valid pairing plist in the JIT section, enable Developer Mode, and
+connect LocalDevVPN. Keep **all app extensions** when signing the IPA. Mark the
+guest as needing JIT using its existing settings. The selected guest's script
+is passed unchanged as base64; without one, StikJIT's bundled universal.js is
+used. Force configured JIT script is off by default and bypasses TXM detection
+only when explicitly enabled. Guests must implement their script's protocol;
+this integration does not add a JIT allocator to an incompatible guest.
+
+Before launch, the host prepares the DDI through StikJIT, checks the signed
+LiveProcess executable's get-task-allow and validates helper/group availability.
+Built-in JIT uses LC's existing LiveProcess PID callback, never the UI PID.
+The request pauses that guest until debugger attachment, then leaves its JIT
+memory preparation and detach handshake to the guest runtime and chosen script.
+Success means StikJIT's session completed, not merely an extension launch or
+CS_DEBUGGED. Preparation has a ten-minute deadline; script execution has a
+three-minute deadline. The helper removes its temporary pairing file on normal
+exit, cancellation watchdog exit, or the next request after abrupt termination.
+
+Built-in JIT forces LiveProcess mode for JIT guests. Classic mode is rejected
+with an actionable error. Existing external StikDebug options remain available
+and unchanged. It never silently switches methods after failure. Cancellation
+ends the debugger helper; because StikJIT has blocking APIs, an attached guest
+may need to be closed and relaunched. Status and Cancel JIT are in Settings.
+This integration still requires real-device iOS/iPadOS 27 testing, including
+Husk startup, region preparation, guest relaunch, cancellation and reboot.
+
+Husk's APK runtime is not embedded by this change. This adds script-capable JIT
+for a Husk IPA (or another compatible guest) imported into LiveContainer.
+
 This is a **personal evaluation build**, not an official LiveContainer or
 SideInstaller release. SideInstaller by FrizzleM:
 <https://github.com/FrizzleM/SideInstaller>. LiveContainer:

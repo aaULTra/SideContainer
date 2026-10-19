@@ -33,6 +33,12 @@ jobs:
           ref: 4dbe0f9a626de801184a42c0be8d2cb105058e3d
           submodules: recursive
           path: vendor-livecontainer
+      - name: Check out pinned StikJIT framework sources
+        uses: actions/checkout@v4
+        with:
+          repository: StikDebug/StikJIT
+          ref: 32287268fa5824f9edce4cb359f5833ce0cf7b00
+          path: vendor-stikjit
       - name: Install build tools
         run: |
           brew install xcodegen ldid
@@ -81,6 +87,16 @@ jobs:
             -derivedDataPath build-embedded-lc IPHONEOS_DEPLOYMENT_TARGET=17.5 \
             CODE_SIGNING_ALLOWED=NO CODE_SIGNING_REQUIRED=NO DEVELOPMENT_TEAM= \
             build 2>&1 | tee embedded-host.log
+      - name: Build built-in guest JIT helper and script framework
+        run: |
+          set -o pipefail
+          python3 embedded/build_jit.py vendor-stikjit
+          xcodegen generate --spec vendor-stikjit/project.yml --project vendor-stikjit
+          xcodebuild -project vendor-stikjit/StikJIT.xcodeproj -scheme SIJITHelper \
+            -configuration Release -sdk iphoneos -arch arm64 \
+            -derivedDataPath build-embedded-jit \
+            CODE_SIGNING_ALLOWED=NO CODE_SIGNING_REQUIRED=NO DEVELOPMENT_TEAM= \
+            build 2>&1 | tee embedded-jit.log
       - uses: actions/cache@v4
         with:
           path: |
@@ -107,7 +123,8 @@ jobs:
           python3 embedded/package.py \
             --host build-embedded-lc/Build/Products/Release-iphoneos/LiveContainer.app \
             --guest build-embedded-si/Build/Products/Release-iphoneos/SideInstaller.app \
-            --dylibify dylibify --upstream vendor-livecontainer --output combined-output
+            --dylibify dylibify --upstream vendor-livecontainer --output combined-output \
+            --jit-products build-embedded-jit/Build/Products/Release-iphoneos --jit-source vendor-stikjit
       - uses: actions/upload-artifact@v4
         if: always()
         with:

@@ -24,6 +24,15 @@ class PackageTests(unittest.TestCase):
         process = self.app / "PlugIns/LiveProcess.appex"
         process.mkdir(parents=True)
         (process / "Info.plist").write_bytes(plistlib.dumps({"CFBundleIdentifier": package.HOST_ID + ".LiveProcess"}))
+        helper = self.app / "PlugIns/SIJITHelper.appex"
+        helper.mkdir()
+        (helper / "Info.plist").write_bytes(plistlib.dumps({
+            "CFBundleIdentifier": package.HOST_ID + ".JITHelper",
+            "NSExtension": {"NSExtensionPrincipalClass": "SIJITHelperHandler"}}))
+        jit = self.app / "Frameworks/StikJIT.framework"
+        jit.mkdir()
+        (jit / "StikJIT").write_bytes(b"framework")
+        (jit / "universal.js").write_text("// script")
         metadata = self.app / "Metadata.appintents"
         metadata.mkdir()
         self.actions = {"actions": {"RefreshAllAppsIntent": {
@@ -42,6 +51,17 @@ class PackageTests(unittest.TestCase):
 
     def test_stock_identity_is_rejected(self):
         (self.app / "Info.plist").write_bytes(plistlib.dumps({"CFBundleIdentifier": "com.kdt.livecontainer"}))
+        with self.assertRaises(AssertionError):
+            package.verify(self.app)
+
+    def test_missing_jit_helper_is_rejected(self):
+        import shutil
+        shutil.rmtree(self.app / "PlugIns/SIJITHelper.appex")
+        with self.assertRaises(AssertionError):
+            package.verify(self.app)
+
+    def test_missing_universal_script_is_rejected(self):
+        (self.app / "Frameworks/StikJIT.framework/universal.js").unlink()
         with self.assertRaises(AssertionError):
             package.verify(self.app)
 
