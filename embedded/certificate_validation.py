@@ -114,12 +114,10 @@ def patch(root, replace):
 }
 
 ''', 1)
-    replace(settings, '        LCUtils.appGroupUserDefault.set(certificateData, forKey: "LCCertificateData")\n        LCUtils.appGroupUserDefault.set(password, forKey: "LCCertificatePassword")',
-            '''        if let issue = LCUtils.embeddedCertificateError(certificateData, password: password, hostBundle: Bundle.main) {
+    replace(settings, '        LCUtils.appGroupUserDefault.set(certificateData, forKey: "LCCertificateData")\n        LCUtils.appGroupUserDefault.set(password, forKey: "LCCertificatePassword")\n        LCUtils.appGroupUserDefault.set(NSDate.now, forKey: "LCCertificateUpdateDate")',
+            '''        if let issue = LCUtils.embeddedActivateCertificate(certificateData, password: password, hostBundle: Bundle.main) {
             errorInfo = issue; errorShow = true; return
-        }
-        LCUtils.appGroupUserDefault.set(certificateData, forKey: "LCCertificateData")
-        LCUtils.setCertificatePassword(password)''', 1)
+        }''', 1)
     replace(diagnose, 'Text("SideStore")', 'Text("SideInstaller")', 1)
     replace(diagnose, '"lc.jitlessSetup.error.testLibLoadFailed %@ %@ %@".localizeWithFormat(storeName, storeName, storeName) + "\\n" + (error?.localizedDescription ?? "")',
             '"Signing test failed. Open the built-in SideInstaller → Set up LiveContainer to check and repair signing.\\n\\n" + (error?.localizedDescription ?? "No error details were returned.")', 1)
