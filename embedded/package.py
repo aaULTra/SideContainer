@@ -162,6 +162,7 @@ def verify(app):
     assert helper_info["NSExtension"]["NSExtensionPrincipalClass"] == "SIJITHelperHandler"
     assert not (helper / "Frameworks").exists(), "JIT framework must live at host Frameworks"
     jit = app / "Frameworks/StikJIT.framework"
+    verify_jit_framework(jit)
     assert (jit / "StikJIT").is_file()
     assert (jit / "universal.js").is_file(), "Universal script must be bundled"
     assert struct.unpack_from("<I", (guest / "SideInstaller").read_bytes(), 12)[0] == 6
@@ -179,8 +180,32 @@ def verify(app):
     assert "com.apple.link.systemProtocol.ProgressReporting" in protocols
     return {"host": HOST_ID, "guest": "SideInstaller", "containsSideStoreApp": False,
             "nativeRefreshIntent": True, "builtInGuestJIT": True,
+            "jitFrameworkMetadataVerified": True,
             "extensions": sorted(x.name for x in (app / "PlugIns").glob("*.appex")),
             "runtimeDeviceTests": "required; compile/package checks do not prove device execution"}
+
+
+def verify_jit_framework(framework):
+    path = framework / "Info.plist"
+    if not path.is_file():
+        raise ValueError("StikJIT.framework/Info.plist is missing; refusing to package an uninstallable framework.")
+    try:
+        info = plistlib.loads(path.read_bytes())
+    except (plistlib.InvalidFileException, ValueError) as error:
+        raise ValueError("StikJIT.framework/Info.plist is malformed") from error
+    if not isinstance(info, dict):
+        raise ValueError("StikJIT.framework/Info.plist must contain a dictionary")
+    for key in ("CFBundleIdentifier", "CFBundleExecutable", "CFBundleName",
+                "CFBundleShortVersionString", "CFBundleVersion", "MinimumOSVersion"):
+        value = info.get(key)
+        if not isinstance(value, str) or not value or "$(" in value:
+            raise ValueError(f"StikJIT.framework/Info.plist has invalid or unresolved {key}")
+    if info.get("CFBundlePackageType") != "FMWK" or info["CFBundleExecutable"] != "StikJIT":
+        raise ValueError("StikJIT.framework must declare FMWK and its actual StikJIT executable")
+    if "iPhoneOS" not in info.get("CFBundleSupportedPlatforms", []):
+        raise ValueError("StikJIT.framework does not declare the iPhoneOS platform")
+    if not (framework / info["CFBundleExecutable"]).is_file():
+        raise ValueError("StikJIT.framework's declared executable is missing")
 
 
 if __name__ == "__main__":

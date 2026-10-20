@@ -98,6 +98,14 @@ jobs:
             -derivedDataPath build-embedded-jit \
             CODE_SIGNING_ALLOWED=NO CODE_SIGNING_REQUIRED=NO DEVELOPMENT_TEAM= \
             build 2>&1 | tee embedded-jit.log
+          python3 - <<'PY'
+          import sys
+          from pathlib import Path
+          sys.path.insert(0, 'embedded')
+          from package import verify_jit_framework
+          verify_jit_framework(Path('build-embedded-jit/Build/Products/Release-iphoneos/StikJIT.framework'))
+          print('Built StikJIT framework metadata verified before packaging.')
+          PY
       - uses: actions/cache@v4
         with:
           path: |

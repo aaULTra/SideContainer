@@ -9,6 +9,18 @@ def generate(vendor):
     sources = Path(__file__).resolve().parent / "jit"
     project_path = vendor / "project.yml"
     project = yaml.safe_load(project_path.read_text())
+    # The upstream framework spec builds a binary without generating its
+    # bundle metadata. installd requires this even when compilation succeeds.
+    framework = project["targets"]["StikJIT"]
+    framework["info"] = {"path": "StikJIT-Info.plist", "properties": {
+        "CFBundleIdentifier": "$(PRODUCT_BUNDLE_IDENTIFIER)",
+        "CFBundleExecutable": "$(EXECUTABLE_NAME)",
+        "CFBundleName": "$(PRODUCT_NAME)",
+        "CFBundlePackageType": "FMWK",
+        "CFBundleInfoDictionaryVersion": "6.0",
+        "CFBundleShortVersionString": "$(MARKETING_VERSION)",
+        "CFBundleVersion": "$(CURRENT_PROJECT_VERSION)"}}
+    framework["settings"]["base"]["GENERATE_INFOPLIST_FILE"] = "NO"
     project["targets"]["SIJITHelper"] = {
         "type": "app-extension", "platform": "iOS", "deploymentTarget": "17.4",
         "sources": [str(sources / "Messages.swift"), str(sources / "Helper.swift")],

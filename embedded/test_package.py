@@ -32,6 +32,12 @@ class PackageTests(unittest.TestCase):
         jit = self.app / "Frameworks/StikJIT.framework"
         jit.mkdir()
         (jit / "StikJIT").write_bytes(b"framework")
+        self.jit_info = {
+            "CFBundleIdentifier": "com.stik.StikJIT", "CFBundleExecutable": "StikJIT",
+            "CFBundleName": "StikJIT", "CFBundlePackageType": "FMWK",
+            "CFBundleShortVersionString": "1.9.0", "CFBundleVersion": "10",
+            "MinimumOSVersion": "17.4", "CFBundleSupportedPlatforms": ["iPhoneOS"]}
+        self.write_jit_info()
         (jit / "universal.js").write_text("// script")
         metadata = self.app / "Metadata.appintents"
         metadata.mkdir()
@@ -45,6 +51,30 @@ class PackageTests(unittest.TestCase):
 
     def write_actions(self):
         (self.app / "Metadata.appintents/extract.actionsdata").write_text(json.dumps(self.actions))
+
+    def write_jit_info(self):
+        (self.app / "Frameworks/StikJIT.framework/Info.plist").write_bytes(plistlib.dumps(self.jit_info))
+
+    def test_missing_jit_framework_plist_is_rejected(self):
+        (self.app / "Frameworks/StikJIT.framework/Info.plist").unlink()
+        with self.assertRaisesRegex(ValueError, "Info.plist is missing"):
+            package.verify(self.app)
+
+    def test_jit_framework_metadata_is_validated(self):
+        original = dict(self.jit_info)
+        for key, value in (("CFBundlePackageType", "APPL"), ("CFBundleExecutable", "Wrong"),
+                           ("CFBundleIdentifier", "$(PRODUCT_BUNDLE_IDENTIFIER)"),
+                           ("MinimumOSVersion", ""), ("CFBundleSupportedPlatforms", ["iPhoneSimulator"])):
+            with self.subTest(key=key):
+                self.jit_info = {**original, key: value}
+                self.write_jit_info()
+                with self.assertRaises(ValueError):
+                    package.verify(self.app)
+
+    def test_malformed_jit_framework_plist_is_rejected(self):
+        (self.app / "Frameworks/StikJIT.framework/Info.plist").write_bytes(b"not a plist")
+        with self.assertRaisesRegex(ValueError, "malformed"):
+            package.verify(self.app)
 
     def test_valid_layout(self):
         self.assertTrue(package.verify(self.app)["nativeRefreshIntent"])
