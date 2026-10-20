@@ -234,3 +234,33 @@ turn on **Force configured JIT script** in built-in setup. Use the LC Apps Run
 button, rather than Husk's own built-in helper (which cannot coordinate itself
 from inside a guest). End-to-end Husk startup and APK execution require a device
 test even when all compile/package checks pass.
+
+
+### Pair once in the combined app
+
+The embedded SideInstaller publishes its current remote-pairing record to a
+private, protected file in the host's actual app group. Publication runs after
+successful self-pairing/import and when opening an existing installation; it
+never generates another pairing. **Tools → Pairing → Use pairing for
+LiveContainer JIT** resends the current record manually. File export uses a
+file-save dialog in the embedded build, rather than asking ShareLink to share a
+guest-container URL. Standalone SideInstaller keeps its existing export UI.
+
+Built-in JIT prefers that shared record automatically. **Use built-in
+SideInstaller pairing** restores automatic mode after a manual JIT import.
+Manual imports remain available and never overwrite the embedded installer's
+record. New shared bytes invalidate prepared state before the next launch;
+pairing changes during preparation reject the result and require a new check.
+The bridge uses LC's captured app-group path rather than spoofed guest homes or
+preference suites. Records are checked for identifier and matching Ed25519
+public/private keys before atomic replacement, protected while locked, excluded
+from backup, and never sent through URLs, preferences, notifications or logs.
+Tests cover replacement, invalid-record rejection without losing the existing
+record, and private permissions. Handoff errors do not fail a successful native
+pair/install. Pairing the separate SideInstaller again may still replace the
+device's trust record: use this combined app's pairing for this workflow.
+
+Cellular connectivity still requires the LocalDevVPN route and a working device
+listener. This change does not claim to fix cellular-only tunnel establishment,
+DDI transport errors, or the guest's script protocol. The source of the pairing
+is shown separately from preparation/JIT readiness.

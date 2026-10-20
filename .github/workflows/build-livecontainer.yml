@@ -50,6 +50,8 @@ jobs:
         run: |
           python3 -m unittest discover -s embedded -p 'test_*.py' -v
           python3 embedded/prepare_livecontainer.py vendor-livecontainer
+          swiftc ios-app/JITPairingStore.swift embedded/jit/PairingStoreTests.swift -o /tmp/si-pairing-store-tests
+          /tmp/si-pairing-store-tests
           swiftc embedded/jit/Messages.swift embedded/jit/PreparationTests.swift -o /tmp/si-jit-preparation-tests
           /tmp/si-jit-preparation-tests
           swiftc embedded/jit/HostContext.swift embedded/jit/HostContextTests.swift -o /tmp/si-jit-host-context-tests

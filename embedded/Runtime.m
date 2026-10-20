@@ -60,3 +60,13 @@ void SIEmbeddedTestSigning(void (^completion)(BOOL, NSString *)) {
     };
     ((void (*)(id, SEL, id, id))objc_msgSend)(cls, selector, host, callback);
 }
+
+NSURL *SIEmbeddedJITPairingURL(void) {
+    NSBundle *host = SIEmbeddedHostBundle();
+    if (![host.infoDictionary[@"SIEmbeddedBuild"] boolValue]) return nil;
+    SEL selector = NSSelectorFromString(@"lcAppGroupPath");
+    if (![NSUserDefaults respondsToSelector:selector]) return nil;
+    NSString *path = ((id (*)(id, SEL))objc_msgSend)(NSUserDefaults.class, selector);
+    if (!path.length || !path.isAbsolutePath) return nil;
+    return [[NSURL fileURLWithPath:path isDirectory:YES] URLByAppendingPathComponent:@"SideInstaller/JIT/pairing.plist"];
+}

@@ -20,6 +20,9 @@ def patch(root, replace):
     for name in ("Messages.swift", "Coordinator.swift", "HostContext.swift"):
         shutil.copyfile(here / name, root / "LiveContainerSwiftUI/Utilities" / ("SIJIT" + name))
 
+    shutil.copyfile(here.parent.parent / "ios-app/JITPairingStore.swift",
+                    root / "LiveContainerSwiftUI/Utilities/SIJITPairingStore.swift")
+
     model = root / "LiveContainerSwiftUI/Models/LCAppModel.swift"
     replace(model,
             '        let multitask = classicMode == 0 ? (multitask ?? shouldLaunchInMultitaskMode) : false',

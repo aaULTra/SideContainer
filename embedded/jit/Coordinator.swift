@@ -34,11 +34,28 @@ final class SIBuiltInJIT: ObservableObject {
     private var continuation: CheckedContinuation<String, Error>?
     private var timer: Timer?
     private var deadline = Date.distantFuture
+    private var preparedPairing: Data?
+    @Published private(set) var pairingSource = "No pairing file available"
+    private var prefersEmbedded: Bool {
+        get { LCUtils.appGroupUserDefault.object(forKey: "SIJITPreferEmbeddedPairing") as? Bool ?? true }
+        set { LCUtils.appGroupUserDefault.set(newValue, forKey: "SIJITPreferEmbeddedPairing") }
+    }
+    private var embeddedPairingURL: URL? {
+        LCSharedUtils.appGroupPath()?.appendingPathComponent(JITPairingStore.relativePath)
+    }
+    var hasEmbeddedPairing: Bool {
+        embeddedPairingURL.map { FileManager.default.fileExists(atPath: $0.path) } ?? false
+    }
+    private var usesEmbeddedPairing: Bool { prefersEmbedded && hasEmbeddedPairing }
 
     nonisolated static var selected: Bool { LCUtils.appGroupUserDefault.integer(forKey: "LCJITEnablerType") == 7 }
-    private var pairingURL: URL {
+    private var importedPairingURL: URL {
         FileManager.default.urls(for: .documentDirectory, in: .userDomainMask)[0]
             .appendingPathComponent("StikJIT/pairingFile.plist")
+    }
+    private var pairingURL: URL {
+        if prefersEmbedded, let url = embeddedPairingURL, FileManager.default.fileExists(atPath: url.path) { return url }
+        return importedPairingURL
     }
     var hasPairing: Bool { FileManager.default.fileExists(atPath: pairingURL.path) }
 
@@ -51,27 +68,51 @@ final class SIBuiltInJIT: ObservableObject {
         let scoped = url.startAccessingSecurityScopedResource()
         defer { if scoped { url.stopAccessingSecurityScopedResource() } }
         let data = try Data(contentsOf: url)
-        guard let plist = try PropertyListSerialization.propertyList(from: data, format: nil) as? [String: Any],
-              !plist.isEmpty else { throw Self.error("Select a valid pairing plist.") }
-        try FileManager.default.createDirectory(at: pairingURL.deletingLastPathComponent(), withIntermediateDirectories: true)
-        try data.write(to: pairingURL, options: [.atomic, .completeFileProtection])
+        try JITPairingStore.save(data, to: importedPairingURL)
+        prefersEmbedded = false
+        refreshPairingSource()
         prepared = false
         status = "Pairing file saved. Tap Prepare device once, or run a JIT app to prepare automatically."
+    }
+
+    func refreshPairingSource() {
+        pairingSource = usesEmbeddedPairing ? "Automatic: built-in SideInstaller" : (hasPairing ? "Manually imported pairing" : "Open built-in SideInstaller to pair this device")
+        if prepared, (try? Data(contentsOf: pairingURL)) != preparedPairing {
+            prepared = false
+            status = "Pairing updated. Prepare the device again, or run a JIT app."
+        }
+    }
+
+    func useEmbeddedPairing() throws {
+        guard !busy else { throw Self.error("Wait for the active JIT operation to finish.") }
+        guard hasEmbeddedPairing, let url = embeddedPairingURL else {
+            throw Self.error("Open built-in SideInstaller → Tools → Pairing and generate or import this device’s pairing file. It will be shared automatically.")
+        }
+        try JITPairingStore.validate(Data(contentsOf: url))
+        prefersEmbedded = true
+        prepared = false
+        refreshPairingSource()
+        status = "Using the built-in SideInstaller pairing. Tap Prepare device or run a JIT app."
     }
 
     // Readiness is deliberately limited to this host process/boot. A replacement
     // pairing file, reset, failed/cancelled operation or relaunch invalidates it.
     func prepare(force: Bool = false) async throws {
         guard !busy else { throw Self.error("Another built-in JIT session is active.") }
+        refreshPairingSource()
         if prepared && !force { return }
         prepared = false
         _ = try await run(.prepare)
+        guard (try? Data(contentsOf: pairingURL)) == preparedPairing else {
+            throw Self.error("Pairing changed during preparation. Prepare the device again.")
+        }
         prepared = true
     }
     func enable(pid: Int, script: String?) async throws {
         guard pid > 0, pid <= Int(Int32.max), pid != Int(getpid()) else {
             throw Self.error("Built-in JIT must target the guest LiveProcess, not the LiveContainer UI.")
         }
+        refreshPairingSource()
         guard prepared else { throw Self.error("Prepare the device from LiveContainer before starting the guest.") }
         do { _ = try await run(.enable, pid: Int32(pid), script: script) }
         catch { prepared = false; throw error }
@@ -114,8 +155,10 @@ final class SIBuiltInJIT: ObservableObject {
         let pairing: Data?
         if operation == .reset { pairing = nil }
         else {
-            guard hasPairing else { throw Self.error("Open Settings → Built-in JIT setup and import this device’s pairing file once.") }
-            pairing = try Data(contentsOf: pairingURL)
+            guard hasPairing else { throw Self.error("Pair this device in the built-in SideInstaller → Tools → Pairing. Its record will be shared with JIT automatically.") }
+            let data = try Data(contentsOf: pairingURL)
+            try JITPairingStore.validate(data)
+            pairing = data
         }
         if NSClassFromString("NSExtension") == nil {
             dlopen("/System/Library/Frameworks/ExtensionFoundation.framework/ExtensionFoundation", RTLD_NOW)
@@ -207,7 +250,10 @@ final class SIBuiltInJIT: ObservableObject {
         self.continuation = nil
         timer?.invalidate()
         timer = nil
-        if let request { UserDefaults(suiteName: request.group)?.removeObject(forKey: request.statusKey) }
+        if let request {
+            UserDefaults(suiteName: request.group)?.removeObject(forKey: request.statusKey)
+            if case .success = result, request.operation == .prepare { preparedPairing = request.pairing }
+        }
         request = nil
         requestID = nil
         helper = nil
@@ -229,20 +275,24 @@ struct SIBuiltInJITSettings: View {
             Section {
                 Label(jit.prepared ? "Device prepared" : (jit.hasPairing ? "Pairing file saved" : "Pairing file needed"),
                       systemImage: jit.prepared ? "checkmark.circle.fill" : "wrench.and.screwdriver")
+                Text(jit.pairingSource).font(.subheadline)
                 Text(jit.status).font(.footnote).textSelection(.enabled)
                 if jit.busy { ProgressView() }
             } footer: {
                 Text("Preparation checks the device connection and Developer Disk Image. Each app still needs its own JIT session when launched.")
             }
             Section {
-                Button(jit.hasPairing ? "Replace pairing file…" : "Import pairing file…") { importing = true }
+                Button("Use built-in SideInstaller pairing", systemImage: "link") {
+                    do { try jit.useEmbeddedPairing() } catch { jit.show(error) }
+                }.disabled(jit.busy || !jit.hasEmbeddedPairing)
+                Button(jit.hasPairing ? "Import a different pairing file…" : "Import pairing file…") { importing = true }
                     .disabled(jit.busy)
                 Button(jit.prepared ? "Check device again" : "Prepare device") {
                     Task { do { try await jit.prepare(force: true) } catch { jit.show(error) } }
                 }.disabled(jit.busy || !jit.hasPairing)
                 if jit.busy { Button("Cancel", role: .destructive) { jit.cancel() } }
             } footer: {
-                Text("Import this device’s pairing file once. Enable Developer Mode and connect LocalDevVPN. Running a JIT app prepares the device automatically if needed; you don’t need to select the JIT enabler again.")
+                Text("Pair in the built-in SideInstaller once; its record is shared automatically. You do not need to export it or pair in the separate SideInstaller app. Enable Developer Mode and connect LocalDevVPN. Running a JIT app prepares the device if needed.")
             }
             Section {
                 Toggle("Force configured JIT script", isOn: $forceScript).disabled(jit.busy)
@@ -261,6 +311,7 @@ struct SIBuiltInJITSettings: View {
         // Keep actions as separate rows and give them independent hit targets.
         .buttonStyle(.borderless)
         .navigationTitle("Built-in JIT setup")
+        .onAppear { jit.refreshPairingSource() }
         .fileImporter(isPresented: $importing, allowedContentTypes: [.data]) { result in
             switch result {
             case .success(let url): do { try jit.importPairing(url) } catch { jit.show(error) }

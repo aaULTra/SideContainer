@@ -422,6 +422,9 @@ final class Engine: ObservableObject {
         loadAnisetteServers()
         // Reflect an IPA imported in an earlier run.
         customIPAName = IPALibrary.customImport()?.url.lastPathComponent
+        #if SIDEINSTALLER_EMBEDDED
+        if let warning = EmbeddedJITPairing.syncIfAvailable() { log(warning) }
+        #endif
     }
 
     // MARK: - Anisette servers
@@ -2522,6 +2525,9 @@ final class Engine: ObservableObject {
             try data.write(to: PrivateStore.pairingFile, options: .atomic)
             // Drop the cached merged file; it was built from the old record.
             CompositePairingFile.invalidateMerged()
+            #if SIDEINSTALLER_EMBEDDED
+            if let warning = EmbeddedJITPairing.syncIfAvailable() { log(warning) }
+            #endif
             pairingFilePath = PrivateStore.pairingFile.path
             importedPairingName = url.lastPathComponent
             UserDefaults.standard.set(url.lastPathComponent, forKey: Engine.importedPairingNameKey)
