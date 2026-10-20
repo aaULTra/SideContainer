@@ -5,12 +5,22 @@
 
 static NSString *suite;
 static NSURL *directory;
+static NSUserDefaults *hostDefaults;
+@interface NSUserDefaults(SigningFixture)
++ (NSUserDefaults *)lcSharedDefaults;
++ (NSUserDefaults *)lcUserDefaults;
+@end
+@implementation NSUserDefaults(SigningFixture)
++ (NSUserDefaults *)lcSharedDefaults { return hostDefaults; }
++ (NSUserDefaults *)lcUserDefaults { return nil; }
+@end
 @interface LCSharedUtils : NSObject
 + (NSString *)appGroupID;
 + (NSURL *)appGroupPath;
 @end
 @implementation LCSharedUtils
-+ (NSString *)appGroupID { return suite; }
+// Simulate a fresh suite being redirected into a guest preference domain.
++ (NSString *)appGroupID { return [suite stringByAppendingString:@".guest"]; }
 + (NSURL *)appGroupPath { return directory; }
 @end
 
@@ -63,6 +73,7 @@ int main(int argc, const char **argv) {
         } mutableCopy];
         NSURL *profileURL = [bundleURL URLByAppendingPathComponent:@"embedded.mobileprovision"];
         NSUserDefaults *defaults = [[NSUserDefaults alloc] initWithSuiteName:suite];
+        hostDefaults = defaults;
         NSData *sentinel = [@"keep-existing" dataUsingEncoding:NSUTF8StringEncoding];
         [defaults setObject:sentinel forKey:@"LCCertificateData"];
         [defaults setObject:@"keep-password" forKey:@"LCCertificatePassword"];

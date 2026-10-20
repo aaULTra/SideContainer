@@ -119,7 +119,9 @@ Do not revoke certificates or change identities to try to fix that check.
 session. A different team stops the operation without replacing the active
 identity. Certificates not listed in the installed host profile are staged
 only for explicit repair; they are not activated in LiveContainer. Manual
-certificate import uses the same host-side compatibility checks.
+certificate import uses the same host-side compatibility checks. Automatic
+activation uses the host preference store captured before guest sandbox hooks,
+and the signing test loads ZSign from the real host bundle.
 
 The setup screen shows the result of the on-device signing test. Profile
 membership alone is never reported as a passed test. A kernel rejection with

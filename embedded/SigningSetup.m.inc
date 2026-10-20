@@ -32,9 +32,12 @@
     if (error) return error;
     NSString *group = LCSharedUtils.appGroupID;
     if (!group.length || !LCSharedUtils.appGroupPath) return @"The shared app group is inaccessible. Reinstall with app groups and all extensions retained.";
-    NSUserDefaults *defaults = [[NSUserDefaults alloc] initWithSuiteName:group];
+    // Captured before the guest preference hooks redirect newly-created suites.
+    NSUserDefaults *defaults = NSUserDefaults.lcSharedDefaults;
+    if (!defaults) return @"LiveContainer's host preference store is unavailable. Reopen the host and retry.";
     [defaults setObject:p12 forKey:@"LCCertificateData"];
-    [self setCertificatePassword:password];
+    [defaults setObject:password forKey:@"LCCertificatePassword"];
+    [NSUserDefaults.lcUserDefaults setObject:password forKey:@"LCCertificatePassword"];
     [defaults setObject:NSDate.date forKey:@"LCCertificateUpdateDate"];
     return nil;
 }

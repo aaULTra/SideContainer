@@ -121,3 +121,14 @@ def patch(root, replace):
     replace(diagnose, 'Text("SideStore")', 'Text("SideInstaller")', 1)
     replace(diagnose, '"lc.jitlessSetup.error.testLibLoadFailed %@ %@ %@".localizeWithFormat(storeName, storeName, storeName) + "\\n" + (error?.localizedDescription ?? "")',
             '"Signing test failed. Open the built-in SideInstaller → Set up LiveContainer to check and repair signing.\\n\\n" + (error?.localizedDescription ?? "No error details were returned.")', 1)
+
+    replace(utils, '    NSUserDefaults* nud = [[NSUserDefaults alloc] initWithSuiteName:[LCSharedUtils appGroupID]];',
+            '    NSUserDefaults* nud = NSUserDefaults.lcSharedDefaults ?: [[NSUserDefaults alloc] initWithSuiteName:[LCSharedUtils appGroupID]];', 1)
+    replace(utils, '    void* handle = dlopen("@executable_path/Frameworks/ZSign.dylib", RTLD_GLOBAL);',
+            '''    // Guest dyld hooks may resolve @executable_path inside SideInstaller.
+    NSBundle *host = NSUserDefaults.lcMainBundle ?: NSBundle.mainBundle;
+    if (NSUserDefaults.isLiveProcess) {
+        host = [NSBundle bundleWithURL:host.bundleURL.URLByDeletingLastPathComponent.URLByDeletingLastPathComponent];
+    }
+    NSString *signer = [host.bundlePath stringByAppendingPathComponent:@"Frameworks/ZSign.dylib"];
+    void* handle = dlopen(signer.fileSystemRepresentation, RTLD_GLOBAL);''', 1)
