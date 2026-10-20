@@ -2187,16 +2187,18 @@ final class Engine: ObservableObject {
     // MARK: Success
 
     #if SIDEINSTALLER_EMBEDDED
+    @Published var embeddedSigningSetupPresented = false
+
     @MainActor
     func shareCertificateWithLiveContainer() async throws -> String {
         try await AppRefreshService.shared.withExclusiveOperation {
             try await self.prepareRefresh()
-            return try await self.exportEmbeddedCertificate()
+            return try await self.exportEmbeddedCertificate().report
         }
     }
 
     @MainActor
-    private func exportEmbeddedCertificate() async throws -> String {
+    private func exportEmbeddedCertificate() async throws -> EmbeddedCertificateHandoff {
         guard let session = signSession else { throw EngineError.message(L("Not signed in.")) }
         let (config, team) = try await onSignQueue {
             // Read the selected team from the session itself, not a queued UI
@@ -2225,15 +2227,40 @@ final class Engine: ObservableObject {
     }
 
     @MainActor
+    func embeddedHostRepairIPA() throws -> URL? {
+        let host = try EmbeddedSigningIdentity.host()
+        guard let revision = host.bundle.object(forInfoDictionaryKey: "SIEmbeddedSourceRevision") as? String else { return nil }
+        return IPALibrary.scan().first(where: {
+            IPALibrary.appInfo(at: $0.url)?.bundleID == EmbeddedSigningIdentity.baseID
+                && IPALibrary.embeddedRevision(at: $0.url) == revision
+        })?.url
+    }
+
+    @MainActor
+    func checkEmbeddedHostSigning() async throws -> EmbeddedSigningCheck {
+        try await AppRefreshService.shared.withExclusiveOperation {
+            try await self.prepareRefresh()
+            let handoff = try await self.exportEmbeddedCertificate()
+            try Task.checkCancellation()
+            if let issue = handoff.activationIssue {
+                return EmbeddedSigningCheck(needsRepair: true, message: issue)
+            }
+            let (valid, error): (Bool, String?) = await withCheckedContinuation { continuation in
+                SIEmbeddedTestSigning { valid, error in continuation.resume(returning: (valid, error)) }
+            }
+            try Task.checkCancellation()
+            return EmbeddedSigningCheck(needsRepair: !valid, message: valid
+                ? "Signing test passed on this device. The certificate is installed and LiveContainer is ready for JIT-less apps. No separate certificate import is needed."
+                : "The certificate matches the host profile, but iOS rejected the signing test. Repair signing can renew the host profile using this same identity; this error alone does not prove a certificate mismatch. If repair still fails, copy these details when reporting it.\n\n" + (error ?? "No error details were returned."))
+        }
+    }
+
+    @MainActor
     func repairEmbeddedHostSigning() async throws {
         try await AppRefreshService.shared.withExclusiveOperation {
             let host = try EmbeddedSigningIdentity.host()
-            guard let revision = host.bundle.object(forInfoDictionaryKey: "SIEmbeddedSourceRevision") as? String,
-                  let ipa = IPALibrary.scan().first(where: {
-                      IPALibrary.appInfo(at: $0.url)?.bundleID == EmbeddedSigningIdentity.baseID
-                        && IPALibrary.embeddedRevision(at: $0.url) == revision
-                  })?.url else {
-                throw EngineError.message("Import this updated build's original unsigned combined IPA using Custom .ipa first. Repair requires the exact build currently installed, with all extensions retained.")
+            guard let ipa = try self.embeddedHostRepairIPA() else {
+                throw EngineError.message("Choose this build's original combined IPA in Set up LiveContainer first.")
             }
             try await self.prepareRefresh()
             // Export also reads and validates the session's actual team.

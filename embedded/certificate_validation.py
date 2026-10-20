@@ -96,3 +96,30 @@ def patch(root, replace):
     replace(utils, '@"lc.signer.latestCertificateInvalidErr"',
             '([[@"iOS rejected the signed test library. " stringByAppendingString:[NSUserDefaults.standardUserDefaults stringForKey:@"SILastSignatureError"] ?: @"Unknown signature error"] '
             'stringByAppendingString:@". In the built-in SideInstaller, Share signing certificate reports whether this host profile authorises that exact certificate. If it does not, use Repair host signing."])', 1)
+
+    # One host API serves both the built-in setup screen and manual LC import.
+    fragment = (__import__('pathlib').Path(__file__).parent / 'SigningSetup.m.inc').read_text()
+    replace(utils, '@implementation LCUtils', '@implementation LCUtils\n' + fragment, 1)
+    header = root / 'LiveContainerSwiftUI/Utilities/LCUtils.h'
+    replace(header, '@interface LCUtils : NSObject', '''@interface LCUtils : NSObject
++ (NSString * _Nullable)embeddedCertificateError:(NSData *)p12 password:(NSString *)password hostBundle:(NSBundle *)host;
++ (NSString * _Nullable)embeddedActivateCertificate:(NSData *)p12 password:(NSString *)password hostBundle:(NSBundle *)host;
++ (void)embeddedValidateJITLessWithHostBundle:(NSBundle *)host completion:(void (^)(BOOL, NSError * _Nullable))completion;
+''', 1)
+    source = utils.read_text()
+    start = source.index('+ (void)validateJITLessSetupWithCompletionHandler:')
+    end = source.index('+ (NSURL *)archiveIPAWithBundleName:', start)
+    replace(utils, source[start:end], '''+ (void)validateJITLessSetupWithCompletionHandler:(void (^)(BOOL success, NSError *error))completionHandler {
+    [self embeddedValidateJITLessWithHostBundle:NSBundle.mainBundle completion:completionHandler];
+}
+
+''', 1)
+    replace(settings, '        LCUtils.appGroupUserDefault.set(certificateData, forKey: "LCCertificateData")\n        LCUtils.appGroupUserDefault.set(password, forKey: "LCCertificatePassword")',
+            '''        if let issue = LCUtils.embeddedCertificateError(certificateData, password: password, hostBundle: Bundle.main) {
+            errorInfo = issue; errorShow = true; return
+        }
+        LCUtils.appGroupUserDefault.set(certificateData, forKey: "LCCertificateData")
+        LCUtils.setCertificatePassword(password)''', 1)
+    replace(diagnose, 'Text("SideStore")', 'Text("SideInstaller")', 1)
+    replace(diagnose, '"lc.jitlessSetup.error.testLibLoadFailed %@ %@ %@".localizeWithFormat(storeName, storeName, storeName) + "\\n" + (error?.localizedDescription ?? "")',
+            '"Signing test failed. Open the built-in SideInstaller → Set up LiveContainer to check and repair signing.\\n\\n" + (error?.localizedDescription ?? "No error details were returned.")', 1)

@@ -3,6 +3,17 @@ import Foundation
 import Security
 import SwiftUI
 import Darwin
+import UniformTypeIdentifiers
+
+struct EmbeddedCertificateHandoff {
+    let report: String
+    let activationIssue: String?
+}
+
+struct EmbeddedSigningCheck {
+    let needsRepair: Bool
+    let message: String
+}
 
 /// UI and LiveProcess have different Engine singletons. An OS-held lock also
 /// excludes the other process and is automatically released if either dies.
@@ -90,7 +101,7 @@ final class SIEmbeddedBridge: NSObject {
 
     /// Keychain hand-off stays within this combined app's access groups. Apple
     /// account passwords and developer-session tokens are never handed to LC.
-    static func storeCertificate(config: String, signingTeam: String?) throws -> String {
+    static func storeCertificate(config: String, signingTeam: String?) throws -> EmbeddedCertificateHandoff {
         guard let json = try JSONSerialization.jsonObject(with: Data(config.utf8)) as? [String: Any],
               let encoded = json["certificateData"] as? String,
               let certificate = Data(base64Encoded: encoded),
@@ -119,58 +130,136 @@ final class SIEmbeddedBridge: NSObject {
                 throw EngineError.message("Certificate Keychain update failed (\(status)).")
             }
         }
-        return "Certificate shared. Return to LiveContainer → Settings → Import Certificate from SideInstaller.\n\n" + report
+        // Keep an incompatible identity staged for an explicit host repair, but
+        // never replace LC's active identity with one the installed profile rejects.
+        let issue = SIEmbeddedActivateCertificate(certificate, password)
+        return EmbeddedCertificateHandoff(report: (issue ?? "Certificate installed in LiveContainer. No separate import is needed.") + "\n\n" + report,
+                                          activationIssue: issue)
     }
 }
 
 struct EmbeddedLiveContainerBar: View {
     @EnvironmentObject private var engine: Engine
-    @State private var working = false
-    @State private var message: String?
-    @State private var confirmRepair = false
+    @State private var showingSetup = false
 
     var body: some View {
         HStack {
-            Button("Back to LiveContainer", systemImage: "arrow.uturn.backward") {
-                SIEmbeddedReturnToHost()
-            }
-            .disabled(engine.isRunning || AppRefreshService.shared.isRefreshing || working)
+            Button("LiveContainer", systemImage: "arrow.uturn.backward") { SIEmbeddedReturnToHost() }
             Spacer()
-            Button(working ? "Sharing…" : "Share signing certificate") {
-                working = true
-                Task { @MainActor in
-                    defer { working = false }
-                    do {
-                        message = try await engine.shareCertificateWithLiveContainer()
-                    } catch { message = AppRefreshService.text(for: error) }
-                }
-            }
-            .disabled(working || engine.isRunning || AppRefreshService.shared.isRefreshing)
-            Button("Repair host signing") { confirmRepair = true }
-                .disabled(working || engine.isRunning || AppRefreshService.shared.isRefreshing)
+            Button("Set up LiveContainer", systemImage: "checkmark.shield") { engine.embeddedSigningSetupPresented = true; showingSetup = true }
         }
+        .disabled(engine.isRunning || AppRefreshService.shared.isRefreshing)
         .font(.footnote)
-        .padding()
+        .padding(.horizontal, 16)
+        .padding(.vertical, 8)
         .background(.regularMaterial)
-        .confirmationDialog("Re-sign this LiveContainer with SideInstaller's identity?", isPresented: $confirmRepair,
-                            titleVisibility: .visible) {
-            Button("Repair host signing") {
-                working = true
-                Task { @MainActor in
-                    defer { working = false }
-                    do {
-                        try await engine.repairEmbeddedHostSigning()
-                        message = "Host replacement reported completion. Close and reopen LiveContainer, import the shared certificate and test JIT-less mode."
-                    } catch { message = AppRefreshService.text(for: error) }
+        .sheet(isPresented: $showingSetup, onDismiss: { engine.embeddedSigningSetupPresented = false }) { EmbeddedSigningSetupView().environmentObject(engine) }
+    }
+}
+
+private struct EmbeddedSigningSetupView: View {
+    @EnvironmentObject private var engine: Engine
+    @Environment(\.dismiss) private var dismiss
+    @State private var operation: Task<Void, Never>?
+    @State private var working = false
+    @State private var shownTwoFactor: TwoFactorPhase?
+    @State private var checked = false
+    @State private var needsRepair = false
+    @State private var hasRepairIPA = false
+    @State private var pickingIPA = false
+    @State private var confirmRepair = false
+    @State private var message = "Connect LocalDevVPN, then check signing. SideInstaller will sign in, check this LiveContainer's certificate, activate it when compatible, and run the signing test."
+
+    var body: some View {
+        NavigationStack {
+            Form {
+                Section("LiveContainer signing") {
+                    Label(working ? "Checking…" : (checked && !needsRepair ? "Signing test passed" : "Setup and repair"),
+                          systemImage: checked && !needsRepair ? "checkmark.circle.fill" : "checkmark.shield")
+                    Text(message).textSelection(.enabled)
+                    Button("Check and fix signing") { runCheck() }
+                        .disabled(working || engine.isRunning || AppRefreshService.shared.isRefreshing)
+                    if working { ProgressView() }
+                }
+                if needsRepair {
+                    Section("Repair this installation") {
+                        Text("Re-signs this LiveContainer in place with SideInstaller's certificate. Keep the same Apple account/team. Your apps and data stay in the existing installation.")
+                        Label(hasRepairIPA ? "Matching repair IPA is ready" : "This build's original combined IPA is needed",
+                              systemImage: hasRepairIPA ? "checkmark.circle" : "doc.badge.plus")
+                        Button("Choose original combined IPA…") { pickingIPA = true }.disabled(working)
+                        Button("Repair signing") { confirmRepair = true }
+                            .disabled(working || !hasRepairIPA || engine.isRunning || AppRefreshService.shared.isRefreshing)
+                    }
                 }
             }
-        } message: {
-            Text("Uses the exact original IPA from your library and the same installed bundle ID/team. Replacing this running app may close it before confirmation. Reopen and verify before retrying. Back up important guest data first.")
+            .navigationTitle("Set up LiveContainer")
+            .navigationBarTitleDisplayMode(.inline)
+            .toolbar { ToolbarItem(placement: .confirmationAction) { Button("Done") { dismiss() }.disabled(working) } }
+            .interactiveDismissDisabled(working)
+            .onAppear { updateRepairIPA() }
+            .onDisappear { operation?.cancel() }
+            .sheet(isPresented: Binding(get: { engine.twoFactor != nil },
+                                       set: { if !$0 { engine.cancelTwoFactor() } })) {
+                if let phase = engine.twoFactor ?? shownTwoFactor { TwoFactorSheet(phase: phase) }
+            }
+            .onChange(of: engine.twoFactor) { _, phase in
+                if let phase { shownTwoFactor = phase }
+            }
+            .fileImporter(isPresented: $pickingIPA, allowedContentTypes: [UTType(filenameExtension: "ipa") ?? .data]) { result in
+                switch result {
+                case .success(let url):
+                    start {
+                        let scoped = url.startAccessingSecurityScopedResource()
+                        defer { if scoped { url.stopAccessingSecurityScopedResource() } }
+                        let host = try EmbeddedSigningIdentity.host()
+                        let revision = host.bundle.object(forInfoDictionaryKey: "SIEmbeddedSourceRevision") as? String
+                        guard let revision, IPALibrary.appInfo(at: url)?.bundleID == EmbeddedSigningIdentity.baseID,
+                              IPALibrary.embeddedRevision(at: url) == revision else {
+                            throw EngineError.message("Choose the original combined IPA for the build currently installed. A different revision cannot repair this installation.")
+                        }
+                        await engine.importCustomIPA(from: url)
+                        if let error = engine.lastError { throw EngineError.message(error) }
+                        updateRepairIPA()
+                        message = "Repair IPA ready. Tap Repair signing to continue."
+                    }
+                case .failure(let error): message = error.localizedDescription
+                }
+            }
+            .confirmationDialog("Repair LiveContainer signing?", isPresented: $confirmRepair, titleVisibility: .visible) {
+                Button("Repair signing") {
+                    start {
+                        try await engine.repairEmbeddedHostSigning()
+                        checked = false
+                        message = "Host replacement reported completion. Fully close and reopen LiveContainer, then return here and tap Check and fix signing. No manual certificate import is needed."
+                    }
+                }
+            } message: {
+                Text("This replaces the running app with the same build, bundle ID and team, and may close it before confirmation. Back up important guest data first. Reopen afterwards to finish the signing test.")
+            }
         }
-        .alert("LiveContainer + SideInstaller", isPresented: Binding(
-            get: { message != nil }, set: { if !$0 { message = nil } })) {
-                Button("OK") { message = nil }
-            } message: { Text(message ?? "") }
+    }
+
+    private func updateRepairIPA() { hasRepairIPA = (try? engine.embeddedHostRepairIPA()) != nil }
+
+    private func runCheck() {
+        checked = false
+        start {
+            let result = try await engine.checkEmbeddedHostSigning()
+            needsRepair = result.needsRepair
+            checked = true
+            message = result.message
+            updateRepairIPA()
+        }
+    }
+
+    private func start(_ action: @escaping @MainActor () async throws -> Void) {
+        guard !working else { return }
+        working = true
+        operation = Task { @MainActor in
+            defer { working = false; operation = nil }
+            do { try Task.checkCancellation(); try await action() }
+            catch { checked = false; message = AppRefreshService.text(for: error) }
+        }
     }
 }
 #endif

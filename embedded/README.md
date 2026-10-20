@@ -104,27 +104,33 @@ Do not revoke certificates or change identities to try to fix that check.
    device pairing file. Connect LocalDevVPN as with standalone SideInstaller.
 4. Start with a disposable test app. Keep its original IPA in the embedded
    library, install it, refresh it, and verify its data and expiry afterwards.
-5. Tap **Share signing certificate**, return with **Back to LiveContainer**, then
-   open LC Settings → **Import Certificate from SideInstaller**. The signed-in
-   team must match the host's team. The hand-off contains an encrypted PKCS#12
-   identity and its password, not the Apple account password or session token.
+5. Tap **Set up LiveContainer → Check and fix signing**. This signs in, checks
+   the actual team's identity against the installed host profile, activates a
+   compatible certificate, and runs the signing test on this device. There is
+   no separate share/import/test sequence. Apple two-factor prompts appear
+   above the setup screen. If repair is needed, choose this installed build's
+   original combined IPA in the same screen, then tap **Repair signing**.
 6. In Shortcuts use this combined app's **Refresh All Apps** action. Test with
    the combined app closed, missing VPN, cancellation, and a failing test app.
 
 ## Certificate mismatch / host repair
 
-**Share signing certificate** now reads the selected team from the actual
-signing session and compares it with the installed host's profile. Missing
-host metadata, unavailable teams and different teams produce distinct errors
-with the public team IDs. It also compares the exported leaf certificate's
-DER bytes with the host profile's `DeveloperCertificates` and shows a SHA-256
-fingerprint. Same team alone does not mean the certificate is authorised.
+**Set up LiveContainer** reads the selected team from the actual signing
+session. A different team stops the operation without replacing the active
+identity. Certificates not listed in the installed host profile are staged
+only for explicit repair; they are not activated in LiveContainer. Manual
+certificate import uses the same host-side compatibility checks.
 
-If it reports a certificate mismatch, import **this exact updated build's
-original unsigned combined IPA** with Custom .ipa, then tap **Repair host
-signing**. A confirmation explains that the running app may close. Repair
-uses the existing `prepareRefresh` / `refreshInstalledApp` signing and tunnel
-installation pipeline; it does not revoke/create a certificate itself.
+The setup screen shows the result of the on-device signing test. Profile
+membership alone is never reported as a passed test. A kernel rejection with
+`F_ADDFILESIGS_RETURN` does not by itself prove a certificate mismatch. Repair
+is offered for an incompatible/expired profile or a failed test, with the
+actual error retained for diagnosis if repair does not help.
+
+The original IPA picker checks both the combined bundle ID and installed
+source revision. Repair reuses `prepareRefresh` / `refreshInstalledApp`; it
+does not revoke certificates or switch accounts. A confirmation explains that
+replacing the running host may close it before completion is reported.
 
 Repair refuses a different source revision, bundle ID, team, missing embedded
 app/LiveProcess, a new profile that does not authorise the signing certificate,
@@ -132,8 +138,9 @@ or signatures lacking development/app-group/128-keychain-group entitlements.
 The signer requests the custom host's isolated keychain groups only for that
 marked bundle. Other apps retain their existing signing behaviour.
 
-After replacement, reopen the host, import the shared certificate, and test
-JIT-less mode. Do not uninstall: a successful same-ID update is intended to
+After replacement, fully close and reopen the host, return to **Set up
+LiveContainer**, and tap **Check and fix signing**. Certificate activation is
+automatic; a successful test is required before showing ready. Do not uninstall: a successful same-ID update is intended to
 preserve data. Back up important guest data before testing this experimental
 repair. Host replacement, extension behaviour and data preservation still
 need hardware verification. If SideStore later refreshes the host with a

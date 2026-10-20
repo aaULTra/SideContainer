@@ -38,3 +38,25 @@ void SIEmbeddedReturnToHost(void) {
         ((BOOL (*)(id, SEL, NSUInteger))objc_msgSend)(cls, selector, 0);
     }
 }
+
+NSString *SIEmbeddedActivateCertificate(NSData *certificate, NSString *password) {
+    Class cls = NSClassFromString(@"LCUtils");
+    SEL selector = NSSelectorFromString(@"embeddedActivateCertificate:password:hostBundle:");
+    NSBundle *host = SIEmbeddedHostBundle();
+    if (!host || ![cls respondsToSelector:selector]) return @"The host signing setup bridge is unavailable. Install the updated combined build.";
+    return ((NSString *(*)(id, SEL, id, id, id))objc_msgSend)(cls, selector, certificate, password, host);
+}
+
+void SIEmbeddedTestSigning(void (^completion)(BOOL, NSString *)) {
+    Class cls = NSClassFromString(@"LCUtils");
+    SEL selector = NSSelectorFromString(@"embeddedValidateJITLessWithHostBundle:completion:");
+    NSBundle *host = SIEmbeddedHostBundle();
+    if (!host || ![cls respondsToSelector:selector]) {
+        completion(NO, @"The host signing test bridge is unavailable. Install the updated combined build.");
+        return;
+    }
+    void (^callback)(BOOL, NSError *) = ^(BOOL valid, NSError *error) {
+        completion(valid, error.localizedDescription);
+    };
+    ((void (*)(id, SEL, id, id))objc_msgSend)(cls, selector, host, callback);
+}
