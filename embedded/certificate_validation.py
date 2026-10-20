@@ -93,9 +93,6 @@ def patch(root, replace):
             '            [NSUserDefaults.standardUserDefaults setObject:[NSString stringWithFormat:@"F_CHECK_LV failed: errno %d (%s). %@", savedErrno, strerror(savedErrno), detail ?: @"No library-validation message"] forKey:@"SILastSignatureError"];\n'
             '        }', 1)
     utils = root / "LiveContainerSwiftUI/Utilities/LCUtils.m"
-    replace(utils, '@"lc.signer.latestCertificateInvalidErr"',
-            '([[@"iOS rejected the signed test library. " stringByAppendingString:[NSUserDefaults.standardUserDefaults stringForKey:@"SILastSignatureError"] ?: @"Unknown signature error"] '
-            'stringByAppendingString:@". In the built-in SideInstaller, Share signing certificate reports whether this host profile authorises that exact certificate. If it does not, use Repair host signing."])', 1)
 
     # One host API serves both the built-in setup screen and manual LC import.
     fragment = (__import__('pathlib').Path(__file__).parent / 'SigningSetup.m.inc').read_text()

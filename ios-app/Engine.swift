@@ -2190,14 +2190,6 @@ final class Engine: ObservableObject {
     @Published var embeddedSigningSetupPresented = false
 
     @MainActor
-    func shareCertificateWithLiveContainer() async throws -> String {
-        try await AppRefreshService.shared.withExclusiveOperation {
-            try await self.prepareRefresh()
-            return try await self.exportEmbeddedCertificate().report
-        }
-    }
-
-    @MainActor
     private func exportEmbeddedCertificate() async throws -> EmbeddedCertificateHandoff {
         guard let session = signSession else { throw EngineError.message(L("Not signed in.")) }
         let (config, team) = try await onSignQueue {

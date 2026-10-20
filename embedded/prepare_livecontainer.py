@@ -101,9 +101,9 @@ def prepare(root):
     replace(settings, '"lc.settings.importCertFromBuiltinSideStore".loc',
             '"Import certificate from SideInstaller"', 1)
     replace(settings, '"lc.settings.importCertFromBuiltinSideStoreDesc".loc',
-            '"Share the certificate in the built-in SideInstaller first. This imports its signing certificate, not your Apple ID password."', 1)
+            '"Compatible certificates sync automatically. For setup or repair, open the built-in SideInstaller → Set up LiveContainer."', 1)
     replace(settings, '"lc.settings.importCertFromBuiltinSideStore.certNotFounndErr".loc',
-            '"No matching certificate was shared. Open SideInstaller and tap Share signing certificate after signing an app with the same team as this host."', 1)
+            '"No compatible certificate is ready. Open the built-in SideInstaller → Set up LiveContainer → Check and fix signing. Use the account/team that signed this host."', 1)
     replace(settings, 'if store == .AltStore || store == .SideStore {',
             'if UserDefaults.sideStoreExist() || store == .AltStore || store == .SideStore {', 1)
     replace(settings, '            }\n        }\n        \n        let storeScheme : String',
