@@ -27,6 +27,7 @@ final class SIBuiltInJIT: ObservableObject {
     static let shared = SIBuiltInJIT()
     @Published private(set) var status = "Import a pairing file, then prepare the device."
     @Published private(set) var busy = false
+    @Published private(set) var prepared = false
     private var helper: AnyObject?
     private var requestID: NSUUID?
     private var request: SIJITRequest?
@@ -54,17 +55,32 @@ final class SIBuiltInJIT: ObservableObject {
               !plist.isEmpty else { throw Self.error("Select a valid pairing plist.") }
         try FileManager.default.createDirectory(at: pairingURL.deletingLastPathComponent(), withIntermediateDirectories: true)
         try data.write(to: pairingURL, options: [.atomic, .completeFileProtection])
-        status = "Pairing file imported. Device preparation must be checked again."
+        prepared = false
+        status = "Pairing file saved. Tap Prepare device once, or run a JIT app to prepare automatically."
     }
 
-    func prepare() async throws { _ = try await run(.prepare) }
+    // Readiness is deliberately limited to this host process/boot. A replacement
+    // pairing file, reset, failed/cancelled operation or relaunch invalidates it.
+    func prepare(force: Bool = false) async throws {
+        guard !busy else { throw Self.error("Another built-in JIT session is active.") }
+        if prepared && !force { return }
+        prepared = false
+        _ = try await run(.prepare)
+        prepared = true
+    }
     func enable(pid: Int, script: String?) async throws {
         guard pid > 0, pid <= Int(Int32.max), pid != Int(getpid()) else {
             throw Self.error("Built-in JIT must target the guest LiveProcess, not the LiveContainer UI.")
         }
-        _ = try await run(.enable, pid: Int32(pid), script: script)
+        guard prepared else { throw Self.error("Prepare the device from LiveContainer before starting the guest.") }
+        do { _ = try await run(.enable, pid: Int32(pid), script: script) }
+        catch { prepared = false; throw error }
     }
-    func reset() async throws { _ = try await run(.reset) }
+    func reset() async throws {
+        guard !busy else { throw Self.error("Wait for the active JIT operation to finish.") }
+        prepared = false
+        _ = try await run(.reset)
+    }
 
     private func run(_ operation: SIJITRequest.Operation, pid: Int32? = nil, script: String? = nil) async throws -> String {
         try Task.checkCancellation()
@@ -97,7 +113,10 @@ final class SIBuiltInJIT: ObservableObject {
         }
         let pairing: Data?
         if operation == .reset { pairing = nil }
-        else { pairing = try Data(contentsOf: pairingURL) }
+        else {
+            guard hasPairing else { throw Self.error("Open Settings → Built-in JIT setup and import this device’s pairing file once.") }
+            pairing = try Data(contentsOf: pairingURL)
+        }
         if NSClassFromString("NSExtension") == nil {
             dlopen("/System/Library/Frameworks/ExtensionFoundation.framework/ExtensionFoundation", RTLD_NOW)
         }
@@ -108,7 +127,7 @@ final class SIBuiltInJIT: ObservableObject {
                                    forceScript: LCUtils.appGroupUserDefault.bool(forKey: "SIForceJITScript"))
         let data = try JSONEncoder().encode(message)
         busy = true
-        status = operation == .enable ? "Starting JIT for guest PID \(pid ?? 0)…" : "Starting device preparation…"
+        status = operation == .enable ? "Starting JIT for guest PID \(pid ?? 0)…" : (operation == .reset ? "Resetting Developer Disk Image cache…" : "Starting device preparation…")
         helper = found
         request = message
         deadline = Date().addingTimeInterval(operation == .enable ? 180 : 600)
@@ -195,7 +214,7 @@ final class SIBuiltInJIT: ObservableObject {
         busy = false
         switch result {
         case .success(let message): status = message
-        case .failure(let error): status = error.localizedDescription
+        case .failure(let error): prepared = false; status = error.localizedDescription
         }
         continuation.resume(with: result)
     }
@@ -206,21 +225,48 @@ struct SIBuiltInJITSettings: View {
     @State private var importing = false
     @AppStorage("SIForceJITScript", store: LCUtils.appGroupUserDefault) private var forceScript = false
     var body: some View {
-        VStack(alignment: .leading, spacing: 12) {
-            Text(jit.status).font(.footnote).textSelection(.enabled)
-            Text("Enable Developer Mode and connect LocalDevVPN. Keep all extensions when signing. Uses the guest's configured script, or universal.js by default. Built-in JIT launches guests in LiveProcess; classic mode is unsupported.")
-                .font(.footnote)
-            Button(jit.hasPairing ? "Replace JIT pairing file" : "Import JIT pairing file") { importing = true }
-                .disabled(jit.busy)
-            Button("Prepare JIT device") { Task { do { try await jit.prepare() } catch { jit.show(error) } } }.disabled(jit.busy || !jit.hasPairing)
-            Button("Reset Developer Disk Image cache") { Task { do { try await jit.reset() } catch { jit.show(error) } } }.disabled(jit.busy)
-            Toggle("Force configured JIT script", isOn: $forceScript).disabled(jit.busy)
-            Text("Force script bypasses TXM detection. Use it only when the guest requires the script on this device.").font(.caption)
-            if jit.busy { Button("Cancel JIT", role: .destructive) { jit.cancel() } }
+        Form {
+            Section {
+                Label(jit.prepared ? "Device prepared" : (jit.hasPairing ? "Pairing file saved" : "Pairing file needed"),
+                      systemImage: jit.prepared ? "checkmark.circle.fill" : "wrench.and.screwdriver")
+                Text(jit.status).font(.footnote).textSelection(.enabled)
+                if jit.busy { ProgressView() }
+            } footer: {
+                Text("Preparation checks the device connection and Developer Disk Image. Each app still needs its own JIT session when launched.")
+            }
+            Section {
+                Button(jit.hasPairing ? "Replace pairing file…" : "Import pairing file…") { importing = true }
+                    .disabled(jit.busy)
+                Button(jit.prepared ? "Check device again" : "Prepare device") {
+                    Task { do { try await jit.prepare(force: true) } catch { jit.show(error) } }
+                }.disabled(jit.busy || !jit.hasPairing)
+                if jit.busy { Button("Cancel", role: .destructive) { jit.cancel() } }
+            } footer: {
+                Text("Import this device’s pairing file once. Enable Developer Mode and connect LocalDevVPN. Running a JIT app prepares the device automatically if needed; you don’t need to select the JIT enabler again.")
+            }
+            Section {
+                Toggle("Force configured JIT script", isOn: $forceScript).disabled(jit.busy)
+            } footer: {
+                Text("Uses the app’s JIT Launch Script, or universal.js when none is configured. For Husk, select its husk-jit.js script in the app’s settings and enable this switch. Keep Compatibility Mode off: built-in JIT uses LiveProcess.")
+            }
+            Section {
+                Button("Reset Developer Disk Image cache", role: .destructive) {
+                    Task { do { try await jit.reset() } catch { jit.show(error) } }
+                }.disabled(jit.busy)
+            } footer: {
+                Text("Use only to troubleshoot a failed download or mount. This does not replace your pairing file or enable JIT.")
+            }
         }
+        // Form’s automatic button style treats an entire row as one action.
+        // Keep actions as separate rows and give them independent hit targets.
+        .buttonStyle(.borderless)
+        .navigationTitle("Built-in JIT setup")
         .fileImporter(isPresented: $importing, allowedContentTypes: [.data]) { result in
-            do { try jit.importPairing(result.get()) }
-            catch { jit.show(error) }
+            switch result {
+            case .success(let url): do { try jit.importPairing(url) } catch { jit.show(error) }
+            case .failure(let error):
+                if (error as NSError).code != NSUserCancelledError { jit.show(error) }
+            }
         }
     }
 }

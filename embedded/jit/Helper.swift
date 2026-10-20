@@ -65,25 +65,38 @@ final class SIJITHelperHandler: NSObject, NSExtensionRequestHandling {
         }
         watchdog.resume()
         defer { watchdog.cancel() }
-        let preparation: (StikJIT.PreparationStage) -> Void = { stage in
-            switch stage {
-            case .checkingReachability: report("Checking LocalDevVPN…")
-            case .checkingDDI: report("Checking Developer Disk Image…")
-            case .downloadingDDI(let fraction, _): report("Downloading Developer Disk Image: \(Int(fraction * 100))%")
-            case .mountingDDI(let fraction): report("Mounting Developer Disk Image: \(Int(fraction * 100))%")
-            case .verifyingDDI: report("Verifying Developer Disk Image…")
-            case .ready: report("Device prepared. Waiting for the guest's JIT protocol…")
-            @unknown default: report("Preparing JIT device…")
+        var stage = SIJITPreparationStage.reachability
+        var stageName = "Checking device connection"
+        func stageReport(_ message: String) { stageName = message; report(message) }
+        let preparation: (StikJIT.PreparationStage) -> Void = { update in
+            switch update {
+            case .checkingReachability: stage = .reachability; stageReport("Checking LocalDevVPN…")
+            case .checkingDDI: stage = .checkingDDI; stageReport("Checking Developer Disk Image…")
+            case .downloadingDDI(let fraction, _): stage = .downloading; stageReport("Downloading Developer Disk Image: \(Int(fraction * 100))%")
+            case .mountingDDI(let fraction): stage = .mounting; stageReport("Mounting Developer Disk Image: \(Int(fraction * 100))%")
+            case .verifyingDDI: stage = .verifying; stageReport("Verifying Developer Disk Image…")
+            case .ready: stage = .ready; stageReport("Device prepared. Waiting for the guest's JIT protocol…")
+            @unknown default: stage = .verifying; stageReport("Preparing JIT device…")
             }
         }
         if request.operation == .prepare {
-            switch StikJIT.prepareDevice(pairingFile: temporary, paths: paths, progress: preparation) {
-            case .ready(let security):
-                let txm = security.isTXMPresent.map { $0 ? "present" : "absent" } ?? "unknown"
-                return .init(success: true, message: "Device prepared (TXM \(txm)). Guest JIT is not enabled yet.")
-            case .unreachable(let reason), .preparationFailed(let reason): throw error(reason)
-            @unknown default: throw error("StikJIT returned an unknown preparation result.")
+            for attempt in 0...1 {
+                switch StikJIT.prepareDevice(pairingFile: temporary, paths: paths, progress: preparation) {
+                case .ready(let security):
+                    let txm = security.isTXMPresent.map { $0 ? "present" : "absent" } ?? "unknown"
+                    return .init(success: true, message: "Device prepared (TXM \(txm)). Run your app from Apps; no need to select or prepare again.")
+                case .unreachable(let reason), .preparationFailed(let reason):
+                    if stage.shouldRetry(reason: reason, attempt: attempt) {
+                        report("Device closed the preflight connection. Reconnecting once…")
+                        // No guest exists yet, and no install/attach/script is retried.
+                        Thread.sleep(forTimeInterval: 0.5)
+                        continue
+                    }
+                    throw error("\(stageName) failed. \(reason)\nCheck LocalDevVPN and that the pairing file belongs to this device. JIT was not started.")
+                @unknown default: throw error("StikJIT returned an unknown preparation result.")
+                }
             }
+            throw error("Device preparation did not complete.")
         }
         guard let pid = request.pid, pid > 0, pid != getpid() else { throw error("Invalid guest PID.") }
         let script: StikJIT.Script
@@ -95,10 +108,26 @@ final class SIJITHelperHandler: NSObject, NSExtensionRequestHandling {
         } else {
             script = .universal
         }
-        try StikJIT.enableJIT(targetPID: pid, pairingFile: temporary, ddiPaths: paths,
-                             script: script, forceScript: request.forceScript,
-                             preparationProgress: preparation,
-                             progress: { _ in report("Running the guest's JIT script against PID \(pid)…") })
+        // The host prepares before creating the guest (a DDI download can take
+        // minutes). Repeating preparation here opens another RSD session while
+        // the guest is already on its short debugger startup deadline.
+        stageName = "Connecting debugger to guest PID \(pid)"
+        do {
+            try StikJIT.enableJITForPreparedDevice(targetPID: pid, pairingFile: temporary,
+                                 script: script, forceScript: request.forceScript,
+                                 progress: { message in
+                                     // Framework stages are public fixed messages. Do not publish
+                                     // arbitrary guest-provided JavaScript log contents.
+                                     if message == "Opening device tunnel…" || message == "Connecting debug server…" || message == "Negotiating debugger…" {
+                                         stageName = message
+                                     } else {
+                                         stageName = "Running guest JIT protocol (PID \(pid))"
+                                     }
+                                     report(stageName)
+                                 })
+        } catch {
+            throw Self.error("\(stageName) failed. \(error.localizedDescription)\nNo debugger/script retry was attempted. Close the guest before retrying. If this repeats, check LocalDevVPN, pairing, and the app’s JIT Launch Script.")
+        }
         return .init(success: true, message: "Guest PID \(pid): JIT session completed and debugger detached.")
     }
 

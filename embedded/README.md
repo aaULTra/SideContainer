@@ -173,7 +173,7 @@ include the failing kernel-validation stage, errno and available message.
 - The 27-second foreground request does not grant unlimited background time.
   Apple 2FA may require opening the embedded UI and retrying afterwards.
 - No unattended scheduling, persistent health-monitoring system, or automatic
-  retries are added by this prototype.
+  background retries are added by this prototype. The built-in JIT read-only preflight retry is described below.
 
 ## Build
 
@@ -208,3 +208,29 @@ guest PID is still required and the coordinator cannot debug itself. Regression
 fixtures explicitly run with `LC_HOME_PATH` set and reject guest/extension
 contexts. This corrects the erroneous “must be started by the installed
 LiveContainer host” rejection in the prior build.
+
+
+### Built-in JIT setup and connection failures
+
+Select **Built-in StikJIT** once, then open **Built-in JIT setup**. Import the
+pairing file once and tap **Prepare device**, or simply run a JIT app after
+importing. Preparation readiness lasts only for this host process/boot and is
+invalidated by pairing replacement, cache reset, cancellation or session failure.
+**Check device again** forces another check; it never opens the pairing picker.
+The setup actions occupy separate Form rows with independent button hit targets.
+
+Preparation runs before LiveProcess starts its debugger wait. Enablement uses
+StikJIT's same JITSession/script pipeline through a small prepared-device entry
+point, avoiding a second DDI preflight after the guest starts. LocalDevVPN is
+still required. No debugger or script operation is retried automatically.
+One connection-reset retry is allowed only during read-only reachability/DDI
+checks, before mounting or starting a guest. Errors retain the preflight/debugger
+stage and the failing FFI operation, including its original code and message.
+A socket reset alone does not identify its cause or establish that JIT works.
+
+For Husk, configure the official version-matched **husk-jit.js** as its **JIT
+Launch Script**, enable **Launch with JIT**, keep Compatibility Mode off, and
+turn on **Force configured JIT script** in built-in setup. Use the LC Apps Run
+button, rather than Husk's own built-in helper (which cannot coordinate itself
+from inside a guest). End-to-end Husk startup and APK execution require a device
+test even when all compile/package checks pass.

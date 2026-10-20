@@ -18,3 +18,13 @@ struct SIJITRequest: Codable {
         static let key = "SideInstaller.JIT.response"
     }
 }
+
+// Only retry read-only preflight checks, never DDI installation, debugger
+// attachment, or a script which may already have changed the guest's memory.
+enum SIJITPreparationStage {
+    case reachability, checkingDDI, downloading, mounting, verifying, ready
+    func shouldRetry(reason: String, attempt: Int) -> Bool {
+        guard attempt == 0, self == .reachability || self == .checkingDDI else { return false }
+        return reason.contains("ConnectionReset") || reason.localizedCaseInsensitiveContains("connection reset by peer")
+    }
+}

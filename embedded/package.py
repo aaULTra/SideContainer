@@ -118,12 +118,13 @@ def package(host, guest, output, dylibify, upstream, jit_products, jit_source):
     shutil.copyfile(Path(__file__).resolve().parent.parent / "LICENSE.md", notices / "SideInstaller-LICENSE.md")
     shutil.copyfile(jit_source / "LICENSE", notices / "StikJIT-MPL-2.0-LICENSE")
     shutil.copyfile(jit_source / "README.md", notices / "StikJIT-README.md")
-    shutil.copyfile(jit_source / "Sources/JITSession.swift", notices / "StikJIT-JITSession.swift")
+    for source in ("JITSession.swift", "StikJIT.swift", "IdeviceFFI.swift"):
+        shutil.copyfile(jit_source / "Sources" / source, notices / ("StikJIT-" + source))
     shutil.copyfile(jit_source / "SI-ScriptRunner-lifetime.patch", notices / "StikJIT-MODIFICATIONS.txt")
     (notices / "StikJIT-SOURCE.txt").write_text(
         "StikJIT sources: https://github.com/StikDebug/StikJIT/tree/32287268fa5824f9edce4cb359f5833ce0cf7b00\n"
-        "Framework built from these sources with an explicit ScriptRunner lifetime guarantee.\n"
-        "Modified MPL source is included as StikJIT-JITSession.swift. Bundled idevice FFI and scripts retain upstream licenses.\n"
+        "Framework modifications include ScriptRunner lifetime, prepared-device API and stage diagnostics.\n"
+        "All three modified MPL Swift source files are included alongside this notice. Bundled idevice FFI and scripts retain upstream licenses.\n"
         "Integration source: https://github.com/aaULTra/SideInstaller/tree/feature/livecontainer-sideinstaller/embedded/jit\n")
     # Preserve LC's signing requests in ad-hoc signatures. A build with signing
     # disabled alone would lose app/keychain groups that IPA resigners read.

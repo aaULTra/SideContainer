@@ -10,7 +10,9 @@ def patch(root, replace):
     replace(settings, '        case .StikJIT: "StikDebug"',
             '        case .BuiltInStikJIT: "Built-in StikJIT (experimental)"\n        case .StikJIT: "StikDebug"', 1)
     replace(settings, '                    if JITEnabler == .SideJITServer ||',
-            '                    if JITEnabler == .BuiltInStikJIT { SIBuiltInJITSettings() }\n'
+            '                    if JITEnabler == .BuiltInStikJIT {\n'
+            '                        NavigationLink("Built-in JIT setup") { SIBuiltInJITSettings() }\n'
+            '                    }\n'
             '                    if JITEnabler == .SideJITServer ||', 1)
     utilities = root / "LiveContainerSwiftUI/Utilities/LCUtilsExtensions.swift"
     # This pinned project's LiveContainerSwiftUI directory is a

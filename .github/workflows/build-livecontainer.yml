@@ -50,6 +50,8 @@ jobs:
         run: |
           python3 -m unittest discover -s embedded -p 'test_*.py' -v
           python3 embedded/prepare_livecontainer.py vendor-livecontainer
+          swiftc embedded/jit/Messages.swift embedded/jit/PreparationTests.swift -o /tmp/si-jit-preparation-tests
+          /tmp/si-jit-preparation-tests
           swiftc embedded/jit/HostContext.swift embedded/jit/HostContextTests.swift -o /tmp/si-jit-host-context-tests
           env LC_HOME_PATH=/tmp/livecontainer-host /tmp/si-jit-host-context-tests
           swiftc -D SIDEINSTALLER_EMBEDDED ios-app/EmbeddedSigningIdentity.swift embedded/IdentityTests.swift -o /tmp/si-identity-tests
