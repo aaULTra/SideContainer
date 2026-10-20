@@ -52,6 +52,11 @@ jobs:
           python3 embedded/prepare_livecontainer.py vendor-livecontainer
           swiftc -D SIDEINSTALLER_EMBEDDED ios-app/EmbeddedSigningIdentity.swift embedded/IdentityTests.swift -o /tmp/si-identity-tests
           /tmp/si-identity-tests
+          openssl req -x509 -newkey rsa:2048 -nodes -subj '/CN=Signing Fixture/OU=ABCDEFGHIJ' -days 1 -keyout /tmp/si-fixture.key -out /tmp/si-fixture.crt
+          openssl pkcs12 -export -inkey /tmp/si-fixture.key -in /tmp/si-fixture.crt -out /tmp/si-fixture.p12 -passout pass:fixture -keypbe PBE-SHA1-3DES -certpbe PBE-SHA1-3DES -macalg sha1
+          clang -fobjc-arc -fblocks -framework Foundation -framework Security embedded/SigningSetupTests.m -o /tmp/si-activation-tests
+          /tmp/si-activation-tests /tmp/si-fixture.p12
+          rm /tmp/si-fixture.key /tmp/si-fixture.crt /tmp/si-fixture.p12
           python3 - <<'PY'
           import yaml
           from pathlib import Path
