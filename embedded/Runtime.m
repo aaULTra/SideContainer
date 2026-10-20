@@ -70,3 +70,13 @@ NSURL *SIEmbeddedJITPairingURL(void) {
     if (!path.length || !path.isAbsolutePath) return nil;
     return [[NSURL fileURLWithPath:path isDirectory:YES] URLByAppendingPathComponent:@"SideInstaller/JIT/pairing.plist"];
 }
+
+BOOL SIEmbeddedUseJITPairing(void) {
+    if (!SIEmbeddedJITPairingURL()) return NO;
+    SEL selector = NSSelectorFromString(@"lcSharedDefaults");
+    if (![NSUserDefaults respondsToSelector:selector]) return NO;
+    NSUserDefaults *defaults = ((id (*)(id, SEL))objc_msgSend)(NSUserDefaults.class, selector);
+    if (!defaults) return NO;
+    [defaults setBool:YES forKey:@"SIJITPreferEmbeddedPairing"];
+    return YES;
+}

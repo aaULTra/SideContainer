@@ -50,7 +50,7 @@ final class PairingManager: ObservableObject {
 
     func sendToLiveContainerJIT() {
         do {
-            try EmbeddedJITPairing.sendCurrent()
+            try EmbeddedJITPairing.sendCurrent(activate: true)
             lastError = nil
             jitPairingStatus = "Current pairing shared with LiveContainer JIT."
             lastSuccess = "Pairing sent to LiveContainer JIT. Return to LiveContainer → Settings → Built-in JIT setup and prepare the device. No new pairing was created."
