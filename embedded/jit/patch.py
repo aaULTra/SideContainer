@@ -15,7 +15,7 @@ def patch(root, replace):
     utilities = root / "LiveContainerSwiftUI/Utilities/LCUtilsExtensions.swift"
     # This pinned project's LiveContainerSwiftUI directory is a
     # PBXFileSystemSynchronizedRootGroup assigned to the UI framework target.
-    for name in ("Messages.swift", "Coordinator.swift"):
+    for name in ("Messages.swift", "Coordinator.swift", "HostContext.swift"):
         shutil.copyfile(here / name, root / "LiveContainerSwiftUI/Utilities" / ("SIJIT" + name))
 
     model = root / "LiveContainerSwiftUI/Models/LCAppModel.swift"

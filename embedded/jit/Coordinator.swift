@@ -69,8 +69,18 @@ final class SIBuiltInJIT: ObservableObject {
     private func run(_ operation: SIJITRequest.Operation, pid: Int32? = nil, script: String? = nil) async throws -> String {
         try Task.checkCancellation()
         guard !busy else { throw Self.error("Another built-in JIT session is active. Finish or cancel it first.") }
-        guard #available(iOS 17.4, *), getenv("LC_HOME_PATH") == nil else {
-            throw Self.error("Built-in JIT must be started by the installed LiveContainer host.")
+        guard #available(iOS 17.4, *) else {
+            throw Self.error("Built-in JIT needs iOS 17.4 or later.")
+        }
+        let context = SIJITHostContext(
+            currentBundleURL: Bundle.main.bundleURL,
+            bootstrapBundleURL: UserDefaults.lcMainBundle()?.bundleURL,
+            isCombinedBuild: Bundle.main.object(forInfoDictionaryKey: "SIEmbeddedBuild") as? Bool == true,
+            isLiveProcess: UserDefaults.isLiveProcess(),
+            isEmbeddedInstaller: UserDefaults.isSideStore(),
+            guestID: UserDefaults.lcGuestAppId())
+        guard context.canCoordinateJIT else {
+            throw Self.error("Open the installed LiveContainer + SI app's Settings to prepare JIT, then launch the guest from its Apps page. Guest apps and LiveProcess cannot start this helper themselves.")
         }
         guard let plugins = Bundle.main.builtInPlugInsURL,
               let identifier = Bundle(url: plugins.appendingPathComponent("SIJITHelper.appex"))?.bundleIdentifier,

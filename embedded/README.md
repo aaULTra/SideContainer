@@ -198,3 +198,13 @@ python3 -m unittest discover -s embedded -p 'test_*.py' -v
 checks isolated bundle identities, extension placement, dylib conversion, no
 embedded SideStore app, and the host's discoverable progress-reporting refresh
 intent with foreground continuation.
+
+### JIT host-context check
+
+LiveContainer sets `LC_HOME_PATH` for its normal host UI as well as guests. The
+coordinator checks the captured host/main bundle URLs, combined-build marker,
+and bootstrap guest/LiveProcess/embedded-installer state instead. The actual
+guest PID is still required and the coordinator cannot debug itself. Regression
+fixtures explicitly run with `LC_HOME_PATH` set and reject guest/extension
+contexts. This corrects the erroneous “must be started by the installed
+LiveContainer host” rejection in the prior build.
