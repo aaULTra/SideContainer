@@ -49,7 +49,7 @@ def prepare(root):
             '#include <mach-o/ldsyms.h>\n#include "SIWineSocketCompat.inc"', 1)
     replace(bootstrap, '    // hook NSUserDefault before running libraries\' initializers',
             '    // BCD Wine sockets must belong to the actual process sandbox.\n'
-            '    if (!isSideStore && si_wine_socket_prepare(appBundle.bundleIdentifier.UTF8String,\n'
+            '    if (!isSideStore && si_wine_socket_prepare(lcGuestAppId.UTF8String,\n'
             '                                             newHomePath.UTF8String, getenv("TMPDIR"))) {\n'
             '        litehook_rebind_symbol(LITEHOOK_REBIND_GLOBAL, bind, si_wine_bind, nil);\n'
             '        litehook_rebind_symbol(LITEHOOK_REBIND_GLOBAL, connect, si_wine_connect, nil);\n'

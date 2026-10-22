@@ -10,6 +10,8 @@ unlink then use the same target, including on a Wine server restart. Other
 guests, TCP/UDP, unrelated sockets, successful binds and other errors retain
 their original behaviour. Socket-length limits are checked without changing
 the process working directory. This adds no identifiers or entitlements.
+Guest detection uses LC's captured original identifier, so enabling its
+"Use LiveContainer Bundle ID" option does not disable the workaround.
 
 `[LC-WineSocket]` messages go to stderr (which BCD captures in its log during
 Wine startup) and `Documents/LC-WineSocket.log` inside BCD's data container. A
