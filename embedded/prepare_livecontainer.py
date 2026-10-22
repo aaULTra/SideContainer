@@ -48,6 +48,14 @@ def prepare(root):
     replace(bootstrap, '[docPath stringByAppendingPathComponent:@"SideStore"]',
             '[docPath stringByAppendingPathComponent:@"SideInstaller"]', 1)
     replace(bootstrap, "Import Certificate from SideStore", "Import Certificate from SideInstaller")
+    # LCUtils lives in LiveContainerSwiftUI, which upstream loads only after
+    # invokeAppMain returns. The built-in guest normally never returns, and
+    # LiveProcess skips the UI path entirely. Load the code (not its main entry
+    # point) while the host bundle/preferences are still unmodified.
+    replace(bootstrap,
+            'NSString* invokeAppMain(NSString *selectedApp, NSString *selectedContainer, int argc, char *argv[]) {',
+            'NSString* invokeAppMain(NSString *selectedApp, NSString *selectedContainer, int argc, char *argv[]) {\n'
+            + (embedded / 'SigningBridgeBootstrap.m.inc').read_text(), 1)
     replace(root / "LiveContainerSwiftUI/Models/BuiltInSideStoreAppInfo.swift",
             "Frameworks/SideStoreApp.framework", "Frameworks/SideInstallerApp.framework", 1)
     replace(root / "LiveContainerSwiftUI/Models/BuiltInSideStoreAppInfo.swift",

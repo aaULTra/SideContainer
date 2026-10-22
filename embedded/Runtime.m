@@ -43,7 +43,9 @@ NSString *SIEmbeddedActivateCertificate(NSData *certificate, NSString *password)
     Class cls = NSClassFromString(@"LCUtils");
     SEL selector = NSSelectorFromString(@"embeddedActivateCertificate:password:hostBundle:");
     NSBundle *host = SIEmbeddedHostBundle();
-    if (!host || ![cls respondsToSelector:selector]) return @"The host signing setup bridge is unavailable. Install the updated combined build.";
+    if (!host) return @"The signing setup could not locate the LiveContainer host bundle. Fully close and reopen LiveContainer.";
+    if (!cls) return @"The host signing framework is not loaded. Install the rebuilt combined IPA with the signing bootstrap fix.";
+    if (![cls respondsToSelector:selector]) return @"The loaded host framework has no certificate activation bridge. Install a matching rebuilt combined IPA.";
     return ((NSString *(*)(id, SEL, id, id, id))objc_msgSend)(cls, selector, certificate, password, host);
 }
 
@@ -51,8 +53,10 @@ void SIEmbeddedTestSigning(void (^completion)(BOOL, NSString *)) {
     Class cls = NSClassFromString(@"LCUtils");
     SEL selector = NSSelectorFromString(@"embeddedValidateJITLessWithHostBundle:completion:");
     NSBundle *host = SIEmbeddedHostBundle();
-    if (!host || ![cls respondsToSelector:selector]) {
-        completion(NO, @"The host signing test bridge is unavailable. Install the updated combined build.");
+    if (!host || !cls || ![cls respondsToSelector:selector]) {
+        completion(NO, !host ? @"The signing test could not locate the LiveContainer host bundle."
+                   : !cls ? @"The host signing framework is not loaded. Install the rebuilt combined IPA with the signing bootstrap fix."
+                   : @"The loaded host framework has no signing test bridge. Install a matching rebuilt combined IPA.");
         return;
     }
     void (^callback)(BOOL, NSError *) = ^(BOOL valid, NSError *error) {

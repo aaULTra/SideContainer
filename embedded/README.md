@@ -123,6 +123,13 @@ certificate import uses the same host-side compatibility checks. Automatic
 activation uses the host preference store captured before guest sandbox hooks,
 and the signing test loads ZSign from the real host bundle.
 
+The built-in guest bootstrap loads the host's LiveContainerSwiftUI framework
+before guest bundle/preference hooks run, checks both signing API selectors,
+and does not call the framework's UI entry point. This also applies to
+LiveProcess refreshes. Previously the framework loaded only on the host UI
+path, leaving the embedded setup screen unable to reach LCUtils. Native macOS
+loader tests cover normal startup, the extension path, and missing APIs.
+
 The setup screen shows the result of the on-device signing test. Profile
 membership alone is never reported as a passed test. A kernel rejection with
 `F_ADDFILESIGS_RETURN` does not by itself prove a certificate mismatch. Repair
