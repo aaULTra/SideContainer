@@ -113,7 +113,13 @@ struct RootView: View {
         .preferredColorScheme(.dark)
         // A swipe down is a cancel; the sign-in closing it is not.
         .sheet(isPresented: Binding(
-            get: { engine.twoFactor != nil },
+            get: {
+                #if SIDEINSTALLER_EMBEDDED
+                return engine.twoFactor != nil && !engine.embeddedSigningSetupPresented
+                #else
+                return engine.twoFactor != nil
+                #endif
+            },
             set: { if !$0 { engine.cancelTwoFactor() } }
         )) {
             if let phase = engine.twoFactor ?? shownTwoFactor {

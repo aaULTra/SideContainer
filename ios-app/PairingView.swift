@@ -1,5 +1,16 @@
 import SwiftUI
 import UIKit
+import UniformTypeIdentifiers
+
+#if SIDEINSTALLER_EMBEDDED
+private struct PairingExportDocument: FileDocument {
+    static var readableContentTypes: [UTType] { [.data] }
+    var data: Data
+    init(data: Data) { self.data = data }
+    init(configuration: ReadConfiguration) throws { data = configuration.file.regularFileContents ?? Data() }
+    func fileWrapper(configuration: WriteConfiguration) throws -> FileWrapper { FileWrapper(regularFileWithContents: data) }
+}
+#endif
 
 /// The Pairing page: generate the pairing file, export it, and write it into a
 /// supported app installed on this iPhone over the loopback tunnel. Pushed from
@@ -11,6 +22,10 @@ struct PairingView: View {
     @ObservedObject var manager: PairingManager
 
     @State private var showSettings = false
+    #if SIDEINSTALLER_EMBEDDED
+    @State private var exportingPairing = false
+    @State private var pairingDocument: PairingExportDocument?
+    #endif
 
     var body: some View {
         ScrollView {
@@ -33,6 +48,15 @@ struct PairingView: View {
         .background(AppBackground())
         .toolbar { settingsToolbarItem(isPresented: $showSettings) }
         .sheet(isPresented: $showSettings) { SettingsView() }
+        #if SIDEINSTALLER_EMBEDDED
+        .fileExporter(isPresented: $exportingPairing, document: pairingDocument,
+                      contentType: .data, defaultFilename: "SideInstaller-pairing.plist") { result in
+            pairingDocument = nil
+            if case .failure(let error) = result, (error as NSError).code != NSUserCancelledError {
+                manager.lastError = error.localizedDescription
+            }
+        }
+        #endif
         .onAppear {
             manager.refresh()
             manager.autoScan()
@@ -95,6 +119,23 @@ struct PairingView: View {
                 .disabled(manager.isBusy || engine.isRunning)
 
                 if let url = manager.exportURL {
+                    #if SIDEINSTALLER_EMBEDDED
+                    Button("Use pairing for LiveContainer JIT", systemImage: "bolt.fill") {
+                        manager.sendToLiveContainerJIT()
+                    }
+                    .buttonStyle(.borderedProminent)
+                    .disabled(manager.isBusy || engine.isRunning)
+                    Text(manager.jitPairingStatus)
+                        .font(.footnote).foregroundStyle(.secondary)
+                    Button(L("Export pairing file"), systemImage: "square.and.arrow.up") {
+                        do {
+                            pairingDocument = PairingExportDocument(data: try Data(contentsOf: url))
+                            exportingPairing = true
+                        } catch { manager.lastError = error.localizedDescription }
+                    }
+                    .buttonStyle(.bordered)
+                    .disabled(manager.isBusy)
+                    #else
                     ShareLink(item: url) {
                         Label(L("Export pairing file"), systemImage: "square.and.arrow.up")
                             .font(.subheadline.weight(.semibold))
@@ -104,6 +145,7 @@ struct PairingView: View {
                     .controlSize(.regular)
                     .tint(Theme.accent)
                     .disabled(manager.isBusy)
+                    #endif
                 }
             }
         }

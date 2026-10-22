@@ -45,6 +45,19 @@ final class PairingManager: ObservableObject {
         return URL(fileURLWithPath: PairingController.pairingFilePath())
     }
 
+    #if SIDEINSTALLER_EMBEDDED
+    @Published private(set) var jitPairingStatus = ""
+
+    func sendToLiveContainerJIT() {
+        do {
+            try EmbeddedJITPairing.sendCurrent(activate: true)
+            lastError = nil
+            jitPairingStatus = "Current pairing shared with LiveContainer JIT."
+            lastSuccess = "Pairing sent to LiveContainer JIT. Return to LiveContainer → Settings → Built-in JIT setup and prepare the device. No new pairing was created."
+        } catch { jitPairingStatus = "Pairing sharing failed."; lastError = error.localizedDescription }
+    }
+    #endif
+
     // MARK: - Actions
 
     /// Re-stat the pairing file, cheap enough to call whenever the tab appears.
@@ -55,6 +68,14 @@ final class PairingManager: ObservableObject {
         pairingFileExists = FileManager.default.fileExists(atPath: path) && size > 0
         pairingFileSize = size
         pairingFileDate = attrs?[.modificationDate] as? Date
+        #if SIDEINSTALLER_EMBEDDED
+        if let warning = EmbeddedJITPairing.syncIfAvailable() {
+            jitPairingStatus = warning
+            engine.log(warning)
+        } else if pairingFileExists {
+            jitPairingStatus = "Current pairing shared with LiveContainer JIT. You do not need the separate SideInstaller app."
+        } else { jitPairingStatus = "" }
+        #endif
     }
 
     /// Run the RPPairing host for a fresh pairing file, showing the PIN through

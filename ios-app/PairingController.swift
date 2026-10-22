@@ -372,6 +372,9 @@ final class PairingController {
                 engine.pairingStatus = L("paired: %@ (%dB)", name, size)
                 // The merged file is now stale; the cached lockdown record is kept.
                 CompositePairingFile.invalidateMerged()
+                #if SIDEINSTALLER_EMBEDDED
+                if let warning = EmbeddedJITPairing.syncIfAvailable() { engine.log(warning) }
+                #endif
                 overSettings.finish(paired: true)
                 resolve(run, .success(PairedDevice(path: path, deviceName: name, deviceModel: model)))
             }

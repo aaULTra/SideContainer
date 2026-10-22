@@ -21,40 +21,62 @@ struct SideInstallerApp: App {
 
     init() {
         // A pairing code still up from a run that was killed means nothing now.
+        #if SIDEINSTALLER_EMBEDDED
+        if !SIEmbeddedIsLiveProcess() {
+            PairingLiveActivity.shared.endLeftovers()
+            PairingNotification.shared.reset()
+        }
+        #else
         PairingLiveActivity.shared.endLeftovers()
         PairingNotification.shared.reset()
+        #endif
     }
 
     var body: some Scene {
         WindowGroup {
-            ZStack {
-                if hasAcceptedTOS && hasCompletedAccountSetup {
-                    RootView()
+            // Reserve real layout space for embedded navigation. A safe-area
+            // overlay outside TabView can cover its navigation controls.
+            VStack(spacing: 0) {
+                #if SIDEINSTALLER_EMBEDDED
+                if !SIEmbeddedIsLiveProcess(), hasAcceptedTOS && hasCompletedAccountSetup {
+                    EmbeddedLiveContainerBar()
                         .environmentObject(engine)
-                        .environmentObject(updateChecker)
                         .environmentObject(localizer)
-                        .environmentObject(accounts)
-                        .task { await updateChecker.check() }
-                        .transition(.opacity)
-                } else if hasAcceptedTOS {
-                    AccountSetupView()
-                        .environmentObject(localizer)
-                        .environmentObject(accounts)
-                        .transition(.asymmetric(
-                            insertion: .identity,
-                            removal: .opacity.combined(with: .scale(scale: 1.06))))
-                        // Layered between the welcome page and the app, so each
-                        // zooms out over the next screen.
-                        .zIndex(0.5)
-                } else {
-                    WelcomeView()
-                        .environmentObject(localizer)
-                        // Zoom past the camera while the app fades in beneath.
-                        .transition(.asymmetric(
-                            insertion: .identity,
-                            removal: .opacity.combined(with: .scale(scale: 1.06))))
-                        .zIndex(1)
                 }
+                #endif
+                ZStack {
+                    if hasAcceptedTOS && hasCompletedAccountSetup {
+                        RootView()
+                            .environmentObject(engine)
+                            .environmentObject(updateChecker)
+                            .environmentObject(localizer)
+                            .environmentObject(accounts)
+                            .task { await updateChecker.check() }
+                            .transition(.opacity)
+                    } else if hasAcceptedTOS {
+                        AccountSetupView()
+                            .environmentObject(localizer)
+                            .environmentObject(accounts)
+                            .transition(.asymmetric(
+                                insertion: .identity,
+                                removal: .opacity.combined(with: .scale(scale: 1.06))))
+                            // Layered between the welcome page and the app, so each
+                            // zooms out over the next screen.
+                            .zIndex(0.5)
+                    } else {
+                        WelcomeView()
+                            .environmentObject(localizer)
+                            // Zoom past the camera while the app fades in beneath.
+                            .transition(.asymmetric(
+                                insertion: .identity,
+                                removal: .opacity.combined(with: .scale(scale: 1.06))))
+                            .zIndex(1)
+                    }
+                }
+                #if SIDEINSTALLER_EMBEDDED
+                .frame(maxWidth: .infinity, maxHeight: .infinity)
+                .clipped()
+                #endif
             }
             .animation(.smooth(duration: 0.5), value: hasAcceptedTOS)
             .animation(.smooth(duration: 0.5), value: hasCompletedAccountSetup)
