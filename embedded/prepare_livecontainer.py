@@ -44,6 +44,19 @@ def prepare(root):
         raise ValueError("Use a fresh upstream checkout, not an already adapted one.")
 
     bootstrap = root / "LiveContainer/LCBootstrap.m"
+    shutil.copyfile(embedded / "WineSocketCompat.c.inc", root / "LiveContainer/SIWineSocketCompat.inc")
+    replace(bootstrap, '#include <mach-o/ldsyms.h>',
+            '#include <mach-o/ldsyms.h>\n#include "SIWineSocketCompat.inc"', 1)
+    replace(bootstrap, '    // hook NSUserDefault before running libraries\' initializers',
+            '    // BCD Wine sockets must belong to the actual process sandbox.\n'
+            '    if (!isSideStore && si_wine_socket_prepare(appBundle.bundleIdentifier.UTF8String,\n'
+            '                                             newHomePath.UTF8String, getenv("TMPDIR"))) {\n'
+            '        litehook_rebind_symbol(LITEHOOK_REBIND_GLOBAL, bind, si_wine_bind, nil);\n'
+            '        litehook_rebind_symbol(LITEHOOK_REBIND_GLOBAL, connect, si_wine_connect, nil);\n'
+            '        litehook_rebind_symbol(LITEHOOK_REBIND_GLOBAL, unlink, si_wine_unlink, nil);\n'
+            '        litehook_rebind_symbol(LITEHOOK_REBIND_GLOBAL, chmod, si_wine_chmod, nil);\n'
+            '    }\n\n'
+            '    // hook NSUserDefault before running libraries\' initializers', 1)
     replace(bootstrap, "Frameworks/SideStoreApp.framework", "Frameworks/SideInstallerApp.framework", 4)
     replace(bootstrap, '[docPath stringByAppendingPathComponent:@"SideStore"]',
             '[docPath stringByAppendingPathComponent:@"SideInstaller"]', 1)

@@ -1,5 +1,23 @@
 # LiveContainer + SideInstaller (experimental embedded flavour)
 
+## BCD Wine socket compatibility (experimental)
+
+For the `com.thebcd69.bcd` guest (including signed identifier suffixes), the
+bootstrap logs Wine's `.wineserver/server-*/socket` binds. If the original bind
+fails with EPERM or EACCES, it retries inside a private, process-owned temporary
+directory. Only a successful retry registers a relocation; connect, chmod and
+unlink then use the same target, including on a Wine server restart. Other
+guests, TCP/UDP, unrelated sockets, successful binds and other errors retain
+their original behaviour. Socket-length limits are checked without changing
+the process working directory. This adds no identifiers or entitlements.
+
+`[LC-WineSocket]` messages go to stderr (which BCD captures in its log during
+Wine startup) and `Documents/LC-WineSocket.log` inside BCD's data container. A
+retry can still be refused by iPadOS; the log records both errors, and an
+on-device test is required before claiming that this fixes a particular build.
+Native tests use real sockets and traffic, injecting only the original bind's
+permission denial, and run on the macOS build runner.
+
 ## Built-in guest JIT (experimental)
 
 Settings → JIT → **Built-in StikJIT (experimental)** enables an invisible
