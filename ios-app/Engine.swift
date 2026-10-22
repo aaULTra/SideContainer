@@ -423,7 +423,11 @@ final class Engine: ObservableObject {
         // Reflect an IPA imported in an earlier run.
         customIPAName = IPALibrary.customImport()?.url.lastPathComponent
         #if SIDEINSTALLER_EMBEDDED
-        if let warning = EmbeddedJITPairing.syncIfAvailable() { log(warning) }
+        // Engine's initializer is not actor-isolated. Run the host preference
+        // handoff on its required actor after initialization has completed.
+        Task { @MainActor [weak self] in
+            if let warning = EmbeddedJITPairing.syncIfAvailable() { self?.log(warning) }
+        }
         #endif
     }
 
