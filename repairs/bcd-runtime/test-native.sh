@@ -4,7 +4,7 @@ R="$PWD"
 mkdir -p runtime-test
 clang -std=c11 -Wall -Wextra -Werror repairs/bcd-runtime/ReadinessTests.c -o runtime-test/readiness
 runtime-test/readiness
-clang -O0 -g -Wl,-export_dynamic -Wl,-no_fixup_chains repairs/bcd-runtime/GuardFixture.c -o runtime-test/fixture
+clang -O0 -g -Wl,-export_dynamic -Wl,-no_fixup_chains -Wl,-headerpad,0x4000 repairs/bcd-runtime/GuardFixture.c -o runtime-test/fixture
 python3 repairs/bcd-runtime/macho_guard.py runtime-test/fixture --header runtime-test/GuardImage.h --inject @loader_path/libFixtureGuard.dylib
 clang -O0 -g -dynamiclib -DBCD_GUARD_FIXTURE=1 -DBCD_GUARD_TIMEOUT=0.1 -I runtime-test \
   -I repairs/bcd-runtime repairs/bcd-runtime/BCDStartupGuard.m -framework Foundation \
