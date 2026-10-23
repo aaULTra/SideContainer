@@ -30,6 +30,7 @@ static int installed;
 static int (*original_socketpair)(int, int, int, int *);
 static int (*server_ready)(void);
 static int (*server_running)(void);
+static int *client_running;
 
 static void repair_log(NSString *message) {
     fprintf(stderr, "[BCD-WineStartup] %s\n", message.UTF8String);
@@ -129,6 +130,9 @@ __attribute__((noinline)) static int guarded_socketpair(int domain, int type, in
     uintptr_t caller = (uintptr_t)__builtin_return_address(0);
     if (caller < image_base + BCD_WINE_START || caller >= image_base + BCD_WINE_END)
         return original_socketpair(domain, type, protocol, pair);
+    /* BCD sets this before socketpair, although the client has not started.
+     * Keep its UI from treating a ten-second server wait as a running game. */
+    __atomic_store_n(client_running, 0, __ATOMIC_RELEASE);
     double began = probe_now(NULL);
     BCDServerProbe probe={probe_running, probe_ready, probe_now, probe_pause, NULL};
     BCDServerResult result = bcd_wait_for_server(probe, BCD_GUARD_TIMEOUT);
@@ -146,6 +150,7 @@ __attribute__((noinline)) static int guarded_socketpair(int domain, int type, in
         if (!prepare_ghost(&failure)) { report_failure(failure); if (pair) { pair[0]=-1; pair[1]=-1; } errno=EIO; return -1; }
         repair_log([NSString stringWithFormat:@"server VERIFIED ready before Wine connection (%.0f ms)", (probe_now(NULL)-began)*1000.0]);
     }
+    __atomic_store_n(client_running, 1, __ATOMIC_RELEASE);
     return original_socketpair(domain, type, protocol, pair);
 }
 
@@ -189,6 +194,7 @@ static void image_added(const struct mach_header *header, intptr_t slide) {
     image_base=base;
     server_ready=(void *)(base+BCD_READY);
     server_running=(void *)(base+BCD_RUNNING);
+    client_running=(void *)(base+BCD_CLIENT_RUNNING);
     __atomic_store_n(slot, (uintptr_t)guarded_socketpair, __ATOMIC_RELEASE);
     kr=mach_vm_protect(mach_task_self(), page, (mach_vm_size_t)getpagesize(), FALSE, info.protection);
     if (kr!=KERN_SUCCESS) repair_log(@"Warning: import page protection restore failed.");

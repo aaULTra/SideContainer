@@ -12,29 +12,32 @@
 #include <unistd.h>
 
 static _Atomic int running=0, ready=0;
+int g_wine_running=0;
 __attribute__((used)) static const char readiness_log[]="[launch] wineserver ready after %.0f ms";
 int wineserver_is_running(void) { return atomic_load(&running); }
 int wineserver_is_ready(void) { return atomic_load(&ready); }
 __attribute__((noinline,optnone)) int wine_process_start(void) {
+    __atomic_store_n(&g_wine_running,1,__ATOMIC_RELEASE);
     int pair[2]={-1,-1};
     int result=socketpair(AF_UNIX,SOCK_STREAM,0,pair);
     if (!result) {close(pair[0]);close(pair[1]);}
+    else __atomic_store_n(&g_wine_running,0,__ATOMIC_RELEASE);
     return result;
 }
 __attribute__((noinline,optnone)) static int unrelated_socketpair(void) {
     int pair[2];int result=socketpair(AF_UNIX,SOCK_STREAM,0,pair);
     if (!result) {close(pair[0]);close(pair[1]);}return result;
 }
-static void *become_ready(void *unused) { usleep(30000);atomic_store(&ready,1);return NULL; }
+static void *become_ready(void *unused) { usleep(30000);assert(__atomic_load_n(&g_wine_running,__ATOMIC_ACQUIRE)==0);atomic_store(&ready,1);return NULL; }
 int main(int argc,char **argv) {
     assert(argc==2);
     int (*installed)(void)=dlsym(RTLD_DEFAULT,"bcd_guard_installed");
     if (!strcmp(argv[1],"unmatched")) {assert(installed && !installed());assert(unrelated_socketpair()==0);puts("unmatched image untouched");return 0;}
     assert(installed && installed());
     if (!strcmp(argv[1],"unrelated")) {assert(unrelated_socketpair()==0);puts("unrelated socketpair unaffected");return 0;}
-    if (!strcmp(argv[1],"stopped")) {atomic_store(&ready,1);assert(wine_process_start()==-1 && errno==EPIPE);puts("stale-ready stopped server refused");return 0;}
+    if (!strcmp(argv[1],"stopped")) {atomic_store(&ready,1);assert(wine_process_start()==-1 && errno==EPIPE && !g_wine_running);puts("stale-ready stopped server refused");return 0;}
     atomic_store(&running,1);
-    if (!strcmp(argv[1],"timeout")) {assert(wine_process_start()==-1 && errno==ETIMEDOUT);puts("timeout refused");return 0;}
+    if (!strcmp(argv[1],"timeout")) {assert(wine_process_start()==-1 && errno==ETIMEDOUT && !g_wine_running);puts("timeout refused");return 0;}
     if (!strcmp(argv[1],"delayed")) {pthread_t thread;pthread_create(&thread,NULL,become_ready,NULL);assert(wine_process_start()==0);pthread_join(thread,NULL);puts("delayed readiness accepted");return 0;}
     atomic_store(&ready,1);
     if (!strcmp(argv[1],"othergame")) {

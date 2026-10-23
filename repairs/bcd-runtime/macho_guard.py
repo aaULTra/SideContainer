@@ -78,8 +78,10 @@ class MachO:
         assert len(slots)==1, f'Expected one socketpair import, found {slots}'
         ready=self.address('_wineserver_is_ready')
         running=self.address('_wineserver_is_running')
+        client_running=self.address('_g_wine_running')
         return {'cpu':self.cpu,'uuid':self.uuid.hex(),'wine_start':start-self.base,'wine_end':end-self.base,
                 'ready':ready-self.base,'running':running-self.base,'socketpair_slot':slots[0]-self.base,
+                'client_running':client_running-self.base,
                 'start_bytes':self.data[self.file_offset(start):self.file_offset(start)+16].hex(),
                 'ready_bytes':self.data[self.file_offset(ready):self.file_offset(ready)+16].hex()}
 
@@ -110,7 +112,7 @@ class MachO:
 
 def write_header(metadata, path):
     fields={'BCD_IMAGE_CPU':'cpu','BCD_WINE_START':'wine_start','BCD_WINE_END':'wine_end',
-            'BCD_READY':'ready','BCD_RUNNING':'running','BCD_SOCKETPAIR_SLOT':'socketpair_slot'}
+            'BCD_READY':'ready','BCD_RUNNING':'running','BCD_CLIENT_RUNNING':'client_running','BCD_SOCKETPAIR_SLOT':'socketpair_slot'}
     lines=['/* Generated from the exact original Mach-O; never hand-edited. */']
     for macro,key in fields.items():lines.append(f'#define {macro} 0x{metadata[key]:x}ULL')
     for name,key in [('BCD_IMAGE_UUID','uuid'),('BCD_START_BYTES','start_bytes'),('BCD_READY_BYTES','ready_bytes')]:

@@ -17,6 +17,8 @@ Wine server to be both running and ready before making the client connection,
 waits at most ten additional seconds for slow initialization, and refuses a
 stopped or timed-out server with a clear log and an iOS alert. It does not
 create the client sockets or inject a client on those failures.
+During this check it keeps BCD's client-running flag false, so the library
+does not mistake a slow server initialization for a game that has started.
 
 For `GhostOfTsushima.exe` only, it checks that NTDSAPI, EVR and DXVA2 are in the
 bundle, then merges `evr,dxva2` into the game's effective opt-in DLL setting.
