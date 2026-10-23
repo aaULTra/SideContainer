@@ -3,14 +3,12 @@ on:
   push:
     branches: [fix/bcd-ntdsapi]
     paths: ['repairs/bcd-runtime/**', '.github/workflows/repair-bcd-runtime.yml']
-  pull_request:
-    paths: ['repairs/bcd-runtime/**', '.github/workflows/repair-bcd-runtime.yml']
   workflow_dispatch:
 permissions:
   contents: read
   actions: read
 concurrency:
-  group: bcd-wine-runtime-${{ github.event.pull_request.head.ref || github.ref_name }}
+  group: bcd-wine-runtime-v2-${{ github.ref_name }}
   cancel-in-progress: true
 jobs:
   repair:
