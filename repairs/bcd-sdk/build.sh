@@ -1,9 +1,14 @@
 #!/usr/bin/env bash
 # Build the omitted Wine module, without rebuilding LC or the iOS host.
 set -euo pipefail
+trap 'for f in out/*.log; do [ ! -f "$f" ] || tail -n 30 "$f"; done' ERR
 R="$PWD"
 WINE_REV=a1049ce9cf37f6cf3c771dead31dcbe3b4e4a0c6
 mkdir -p work out
+# makedep scans BCD-owned headers outside the Wine submodule, even for PE-only builds.
+git clone --depth 1 --branch v0.1.580 --filter=blob:none --sparse https://github.com/thebcd69/bcd-games.git work/bcd-base
+git -C work/bcd-base sparse-checkout set build
+ln -s bcd-base/build work/build
 git init work/wine
 git -C work/wine remote add origin https://github.com/thebcd69/bcd-wine.git
 git -C work/wine fetch --depth 1 origin "$WINE_REV"
