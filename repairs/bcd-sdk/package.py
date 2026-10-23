@@ -12,7 +12,9 @@ import pefile
 original, module, out = map(pathlib.Path, sys.argv[1:])
 d = module.read_bytes()
 pe = pefile.PE(data=d)
-assert pe.FILE_HEADER.Machine == 0xA641, 'Expected ARM64EC, matching BCD system32'
+assert pe.FILE_HEADER.Machine == 0x8664, 'Expected ARM64EC PE image (x64 machine header)'
+assert hasattr(pe, 'DIRECTORY_ENTRY_LOAD_CONFIG')
+assert pe.DIRECTORY_ENTRY_LOAD_CONFIG.struct.CHPEMetadataPointer, 'Missing ARM64EC CHPE metadata'
 assert pe.FILE_HEADER.Characteristics & 0x2000, 'Expected a DLL'
 exports = {e.name.decode() for e in pe.DIRECTORY_ENTRY_EXPORT.symbols if e.name}
 assert {'DsBindA', 'DsBindW', 'DsMakeSpnW', 'DsCrackNamesW'} <= exports
