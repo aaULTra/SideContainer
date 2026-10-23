@@ -23,12 +23,19 @@ class PackageTests(unittest.TestCase):
         (guest / "SideInstaller").write_bytes(struct.pack("<IIII", 0xfeedfacf, 0x100000c, 0, 6))
         process = self.app / "PlugIns/LiveProcess.appex"
         process.mkdir(parents=True)
-        (process / "Info.plist").write_bytes(plistlib.dumps({"CFBundleIdentifier": package.HOST_ID + ".LiveProcess"}))
-        helper = self.app / "PlugIns/SIJITHelper.appex"
-        helper.mkdir()
+        (process / "Info.plist").write_bytes(plistlib.dumps({
+            "CFBundleIdentifier": package.HOST_ID + ".LiveProcess",
+            "SIJITMultiplexedService": True, "XPCService": {"_MultipleInstances": True}}))
+        for name in ("ShareExtension", "LaunchAppExtension", "PairingActivity"):
+            extension = self.app / "PlugIns" / (name + ".appex")
+            extension.mkdir()
+            (extension / "Info.plist").write_bytes(plistlib.dumps({"CFBundleIdentifier": package.HOST_ID + "." + name}))
+        helper = self.app / "Frameworks/SIJITSupport.framework"
+        helper.mkdir(parents=True)
+        (helper / "SIJITSupport").write_bytes(b"framework")
         (helper / "Info.plist").write_bytes(plistlib.dumps({
-            "CFBundleIdentifier": package.HOST_ID + ".JITHelper",
-            "NSExtension": {"NSExtensionPrincipalClass": "SIJITHelperHandler"}}))
+            "CFBundleIdentifier": package.HOST_ID + ".JITSupport",
+            "CFBundleExecutable": "SIJITSupport", "CFBundlePackageType": "FMWK"}))
         jit = self.app / "Frameworks/StikJIT.framework"
         jit.mkdir()
         (jit / "StikJIT").write_bytes(b"framework")
@@ -77,7 +84,9 @@ class PackageTests(unittest.TestCase):
             package.verify(self.app)
 
     def test_valid_layout(self):
-        self.assertTrue(package.verify(self.app)["nativeRefreshIntent"])
+        report = package.verify(self.app)
+        self.assertTrue(report["nativeRefreshIntent"])
+        self.assertEqual(report["provisionedBundleCount"], 5)
 
     def test_stock_identity_is_rejected(self):
         (self.app / "Info.plist").write_bytes(plistlib.dumps({"CFBundleIdentifier": "com.kdt.livecontainer"}))
@@ -86,9 +95,29 @@ class PackageTests(unittest.TestCase):
 
     def test_missing_jit_helper_is_rejected(self):
         import shutil
-        shutil.rmtree(self.app / "PlugIns/SIJITHelper.appex")
+        shutil.rmtree(self.app / "Frameworks/SIJITSupport.framework")
         with self.assertRaises(AssertionError):
             package.verify(self.app)
+
+    def test_all_user_facing_extensions_are_preserved(self):
+        import shutil
+        for name in ("ShareExtension", "LaunchAppExtension", "PairingActivity"):
+            with self.subTest(name=name), tempfile.TemporaryDirectory() as tmp:
+                clone = Path(tmp) / "LiveContainer.app"
+                shutil.copytree(self.app, clone)
+                shutil.rmtree(clone / "PlugIns" / (name + ".appex"))
+                with self.assertRaises(AssertionError): package.verify(clone)
+
+    def test_old_helper_extension_is_rejected(self):
+        (self.app / "PlugIns/SIJITHelper.appex").mkdir()
+        with self.assertRaises(AssertionError): package.verify(self.app)
+
+    def test_process_must_support_independent_service_instances(self):
+        path = self.app / "PlugIns/LiveProcess.appex/Info.plist"
+        info = plistlib.loads(path.read_bytes())
+        info["XPCService"]["_MultipleInstances"] = False
+        path.write_bytes(plistlib.dumps(info))
+        with self.assertRaises(AssertionError): package.verify(self.app)
 
     def test_missing_universal_script_is_rejected(self):
         (self.app / "Frameworks/StikJIT.framework/universal.js").unlink()

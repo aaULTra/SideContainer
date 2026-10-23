@@ -1,4 +1,4 @@
-"""Generate the helper target alongside pinned StikJIT's own framework target."""
+"""Build JIT service code without another provisioned extension."""
 import argparse
 from pathlib import Path
 import plistlib
@@ -21,27 +21,23 @@ def generate(vendor):
         "CFBundleShortVersionString": "$(MARKETING_VERSION)",
         "CFBundleVersion": "$(CURRENT_PROJECT_VERSION)"}}
     framework["settings"]["base"]["GENERATE_INFOPLIST_FILE"] = "NO"
-    project["targets"]["SIJITHelper"] = {
-        "type": "app-extension", "platform": "iOS", "deploymentTarget": "17.4",
+    project["targets"]["SIJITSupport"] = {
+        "type": "framework", "platform": "iOS", "deploymentTarget": "17.4",
         "sources": [str(sources / "Messages.swift"), str(sources / "Helper.swift")],
-        "info": {"path": "SIJITHelper-Info.plist", "properties": {
-            "CFBundleDisplayName": "LiveContainer JIT Helper",
-            "NSExtension": {
-                "NSExtensionPointIdentifier": "com.apple.ar.viewer",
-                "NSExtensionPrincipalClass": "SIJITHelperHandler",
-                "NSExtensionContextClass": "NSExtensionContext",
-                "NSExtensionContextHostClass": "NSExtensionContext",
-                "NSExtensionAttributes": {"NSExtensionActivationRule": "FALSEPREDICATE"}},
-            "XPCService": {"ServiceType": "Application", "_MultipleInstances": True, "_ProcessType": "App"},
-            "NSLocalNetworkUsageDescription": "Connect to this device through LocalDevVPN to enable guest JIT.",
-            "NSAppTransportSecurity": {"NSAllowsArbitraryLoads": True}}},
+        "info": {"path": "SIJITSupport-Info.plist", "properties": {
+            "CFBundleIdentifier": "$(PRODUCT_BUNDLE_IDENTIFIER)",
+            "CFBundleExecutable": "$(EXECUTABLE_NAME)",
+            "CFBundleName": "$(PRODUCT_NAME)", "CFBundlePackageType": "FMWK",
+            "CFBundleShortVersionString": "$(MARKETING_VERSION)",
+            "CFBundleVersion": "$(CURRENT_PROJECT_VERSION)"}},
         "settings": {"base": {
-            "PRODUCT_BUNDLE_IDENTIFIER": "com.aault.livecontainer.sideinstaller.JITHelper",
+            "PRODUCT_BUNDLE_IDENTIFIER": "com.aault.livecontainer.sideinstaller.JITSupport",
+            "GENERATE_INFOPLIST_FILE": "NO",
             "TARGETED_DEVICE_FAMILY": "1,2", "APPLICATION_EXTENSION_API_ONLY": "YES",
-            "LD_RUNPATH_SEARCH_PATHS": ["$(inherited)", "@executable_path/../../Frameworks"]}},
+            "LD_RUNPATH_SEARCH_PATHS": ["$(inherited)", "@loader_path/..", "@executable_path/../../Frameworks"]}},
         "dependencies": [{"target": "StikJIT", "embed": False}],
     }
-    project["schemes"]["SIJITHelper"] = {"build": {"targets": {"SIJITHelper": "all"}}}
+    project["schemes"]["SIJITSupport"] = {"build": {"targets": {"SIJITSupport": "all"}}}
     project_path.write_text(yaml.safe_dump(project, sort_keys=False))
     # Release WMO diagnoses weak callbacks on the temporary ScriptRunner.
     # Keep the owner alive for the entire synchronous JavaScript evaluation.
@@ -98,10 +94,7 @@ def generate(vendor):
     (vendor / "SI-ScriptRunner-lifetime.patch").write_text(
         "SideInstaller modifications: hold ScriptRunner strongly; add a prepared-device session entry point; retain FFI operation names and report debugger stages.\n"
         "Original: StikDebug/StikJIT 32287268fa5824f9edce4cb359f5833ce0cf7b00\n")
-    # No broad guest entitlements are needed by the debugger process itself.
-    (vendor / "SIJITHelper.entitlements").write_bytes(plistlib.dumps({
-        "get-task-allow": True,
-        "com.apple.security.application-groups": ["$(APP_GROUP_SIDESTORE)", "$(APP_GROUP_ALTSTORE)"]}))
+    # The framework shares LiveProcess's provisioned identity and sandbox.
 
 
 if __name__ == "__main__":

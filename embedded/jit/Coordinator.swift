@@ -140,13 +140,15 @@ final class SIBuiltInJIT: ObservableObject {
             throw Self.error("Open the installed LiveContainer + SI app's Settings to prepare JIT, then launch the guest from its Apps page. Guest apps and LiveProcess cannot start this helper themselves.")
         }
         guard let plugins = Bundle.main.builtInPlugInsURL,
-              let identifier = Bundle(url: plugins.appendingPathComponent("SIJITHelper.appex"))?.bundleIdentifier,
               let process = Bundle(url: plugins.appendingPathComponent("LiveProcess.appex")),
+              let identifier = process.bundleIdentifier,
+              process.object(forInfoDictionaryKey: "SIJITMultiplexedService") as? Bool == true,
+              FileManager.default.fileExists(atPath: Bundle.main.bundleURL.appendingPathComponent("Frameworks/SIJITSupport.framework/SIJITSupport").path),
               let executable = process.executablePath,
               let xml = LCSharedUtils.embeddedEntitlements(atPath: executable),
               let entitlements = try PropertyListSerialization.propertyList(from: Data(xml.utf8), format: nil) as? [String: Any],
               entitlements["get-task-allow"] as? Bool == true else {
-            throw Self.error("Missing JIT helper, LiveProcess or get-task-allow. Reinstall this build and keep all extensions.")
+            throw Self.error("Missing JIT service, LiveProcess or get-task-allow. Update this combined build and keep its extensions.")
         }
         guard let group = LCSharedUtils.appGroupID(),
               FileManager.default.containerURL(forSecurityApplicationGroupIdentifier: group) != nil else {
