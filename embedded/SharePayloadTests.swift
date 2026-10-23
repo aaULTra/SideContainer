@@ -1,5 +1,13 @@
 import Foundation
 import UniformTypeIdentifiers
+import Combine
+
+// The actual ShareModels.swift is compiled into this native fixture. Only
+// its containing-app lookup needs a stand-in; loader behaviour stays real.
+enum LCSharedUtils { static func appGroupPath() -> URL? { nil } }
+final class ShareMenuState: ObservableObject {
+    @Published var payload = SharePayload()
+}
 
 @main
 struct SharePayloadTests {
@@ -27,6 +35,14 @@ struct SharePayloadTests {
         try fm.removeItem(at: temporary)
         let copiedBytes = try Data(contentsOf: staged)
         precondition(copiedBytes == bytes, "Do not retain the provider's temporary URL")
+        let menu = ShareMenuState()
+        var publications = 0
+        let token = menu.objectWillChange.sink { publications += 1 }
+        menu.payload.kind = .file(staged)
+        precondition(publications == 1, "Recognising an IPA must refresh the import menu")
+        menu.payload.kind = .failed("fixture failure")
+        precondition(publications == 2, "A loading failure must refresh the error display")
+        token.cancel()
 
         let website = URL(string: "https://example.com/a?value=1&other=2")!
         let link = NSItemProvider(item: website as NSURL, typeIdentifier: UTType.url.identifier)

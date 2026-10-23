@@ -11,6 +11,14 @@ def patch(root, replace, scheme):
     replace(model, 'Frameworks/SideStoreApp.framework', 'Frameworks/SideInstallerApp.framework', 1)
     replace(model, 'SideStore/Library/Caches', 'SideInstaller/Library/Caches', 1)
     replace(model, '"SideStore"', '"SideInstaller"', 2)
+    replace(model, '''        if let context {
+            currentContext = context
+        }
+        Task {''', '''        if let context {
+            currentContext = context
+        }
+        guard let context = context ?? currentContext else { return }
+        Task {''', 1)
     launcher = root / 'ShareExtension/main.m'
     replace(launcher, '@"livecontainer"', f'@"{scheme}"', 1)
     replace(launcher, '@"sidestore"', '@"sideinstaller-embedded"', 1)
@@ -25,6 +33,10 @@ def patch(root, replace, scheme):
                     root / 'ShareExtension/SISharePayloadLoader.swift')
     payload = root / 'ShareExtension/ShareModels.swift'
     text = payload.read_text()
+    # The view observes the view model's @Published payload. A nested
+    # ObservableObject does not forward kind changes to that parent publisher.
+    text = text.replace('final class SharePayload: ObservableObject {', 'struct SharePayload {', 1)
+    text = text.replace('@Published var kind: Kind = .loading', 'var kind: Kind = .loading', 1)
     start = text.index('        let providers = items.flatMap')
     end = text.index('\n        return .empty', start) + len('\n        return .empty')
     text = text[:start] + '''        let providers = items.flatMap { $0.attachments ?? [] }

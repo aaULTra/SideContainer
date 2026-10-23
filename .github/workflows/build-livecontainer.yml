@@ -51,7 +51,7 @@ jobs:
           python3 -m unittest discover -s embedded -p 'test_*.py' -v
           python3 embedded/prepare_livecontainer.py vendor-livecontainer
           python3 embedded/check_share_routing.py vendor-livecontainer
-          swiftc -parse-as-library embedded/SISharePayloadLoader.swift embedded/SharePayloadTests.swift -o /tmp/si-share-payload-tests
+          swiftc -parse-as-library embedded/SISharePayloadLoader.swift vendor-livecontainer/ShareExtension/ShareModels.swift embedded/SharePayloadTests.swift -o /tmp/si-share-payload-tests
           /tmp/si-share-payload-tests
           swiftc ios-app/JITPairingStore.swift embedded/jit/PairingStoreTests.swift -o /tmp/si-pairing-store-tests
           /tmp/si-pairing-store-tests
