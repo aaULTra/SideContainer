@@ -47,15 +47,15 @@ def package(host, guest, output, dylibify, upstream, jit_products, jit_source):
     payload.mkdir()
     app = payload / "LiveContainer.app"
     shutil.copytree(host, app)
-    shutil.copytree(jit_products / "SIJITHelper.appex", app / "PlugIns/SIJITHelper.appex")
+    shutil.copytree(jit_products / "SIJITSupport.framework", app / "Frameworks/SIJITSupport.framework")
     shutil.copytree(jit_products / "StikJIT.framework", app / "Frameworks/StikJIT.framework")
     host_info = plistlib.loads((app / "Info.plist").read_bytes())
-    update_plist(app / "PlugIns/SIJITHelper.appex/Info.plist", lambda data: data.update({
+    update_plist(app / "Frameworks/SIJITSupport.framework/Info.plist", lambda data: data.update({
         key: host_info[key] for key in ("CFBundleVersion", "CFBundleShortVersionString")}))
-    helper_binary = app / "PlugIns/SIJITHelper.appex/SIJITHelper"
+    helper_binary = app / "Frameworks/SIJITSupport.framework/SIJITSupport"
     if "@rpath/StikJIT.framework/StikJIT" not in subprocess.check_output(["otool", "-L", str(helper_binary)], text=True):
         raise ValueError("The debugger helper is not linked to the bundled StikJIT framework.")
-    if "@executable_path/../../Frameworks" not in subprocess.check_output(["otool", "-l", str(helper_binary)], text=True):
+    if "@loader_path/.." not in subprocess.check_output(["otool", "-l", str(helper_binary)], text=True):
         raise ValueError("The debugger helper cannot resolve the framework in the host's Frameworks directory.")
     framework = app / "Frameworks/SideInstallerApp.framework"
     shutil.copytree(guest, framework)
@@ -129,7 +129,6 @@ def package(host, guest, output, dylibify, upstream, jit_products, jit_source):
     # Preserve LC's signing requests in ad-hoc signatures. A build with signing
     # disabled alone would lose app/keychain groups that IPA resigners read.
     templates = [(app, upstream / "entitlements.xml")]
-    templates.append((app / "PlugIns/SIJITHelper.appex", jit_source / "SIJITHelper.entitlements"))
     for extension in (app / "PlugIns").glob("*.appex"):
         source = upstream / extension.stem / (extension.stem + ".entitlements")
         if source.exists():
@@ -157,10 +156,16 @@ def verify(app):
     assert not (app / "Frameworks/SideStoreApp.framework").exists(), "Do not ship an unused SideStore app"
     assert not (guest / "PlugIns").exists(), "Nested app extensions are not installable"
     assert (app / "PlugIns/LiveProcess.appex").is_dir()
-    helper = app / "PlugIns/SIJITHelper.appex"
-    assert helper.is_dir(), "Built-in JIT helper must be embedded in the actual host"
+    assert not (app / "PlugIns/SIJITHelper.appex").exists(), "Do not allocate an extra JIT App ID"
+    helper = app / "Frameworks/SIJITSupport.framework"
+    assert helper.is_dir(), "Built-in JIT service framework must be embedded in the actual host"
     helper_info = plistlib.loads((helper / "Info.plist").read_bytes())
-    assert helper_info["NSExtension"]["NSExtensionPrincipalClass"] == "SIJITHelperHandler"
+    assert helper_info["CFBundlePackageType"] == "FMWK" and "NSExtension" not in helper_info
+    assert helper_info["CFBundleExecutable"] == "SIJITSupport"
+    assert (helper / "SIJITSupport").is_file()
+    process_info = plistlib.loads((app / "PlugIns/LiveProcess.appex/Info.plist").read_bytes())
+    assert process_info.get("SIJITMultiplexedService") is True
+    assert process_info.get("XPCService", {}).get("_MultipleInstances") is True
     assert not (helper / "Frameworks").exists(), "JIT framework must live at host Frameworks"
     jit = app / "Frameworks/StikJIT.framework"
     verify_jit_framework(jit)
@@ -179,9 +184,17 @@ def verify(app):
     protocols = refresh["systemProtocols"]
     assert "com.apple.link.systemProtocol.ForegroundContinuable" in protocols
     assert "com.apple.link.systemProtocol.ProgressReporting" in protocols
+    expected_extensions = {"LiveProcess.appex", "ShareExtension.appex", "LaunchAppExtension.appex", "SideInstallerLiveActivity.appex"}
+    actual_extensions = {x.name for x in (app / "PlugIns").glob("*.appex")}
+    assert actual_extensions == expected_extensions, (
+        f"Extension layout mismatch: missing {sorted(expected_extensions - actual_extensions)}; "
+        f"unexpected {sorted(actual_extensions - expected_extensions)}")
     return {"host": HOST_ID, "guest": "SideInstaller", "containsSideStoreApp": False,
             "nativeRefreshIntent": True, "builtInGuestJIT": True,
             "jitFrameworkMetadataVerified": True,
+            "jitUsesIndependentLiveProcess": True,
+            "provisionedBundleCount": 1 + len(actual_extensions),
+            "appIDsRemoved": [HOST_ID + ".JITHelper"],
             "extensions": sorted(x.name for x in (app / "PlugIns").glob("*.appex")),
             "runtimeDeviceTests": "required; compile/package checks do not prove device execution"}
 

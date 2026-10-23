@@ -1,6 +1,7 @@
 """Checked integration into the pinned host's existing compilation units."""
 from pathlib import Path
 import shutil
+import plistlib
 
 
 def patch(root, replace):
@@ -58,6 +59,22 @@ def patch(root, replace):
             '        [[NSUserDefaults.standardUserDefaults stringForKey:@"SIBuiltInJITContainer"] isEqualToString:dataUUID]);\n'
             '    item.userInfo = userInfo;', 1)
     process = root / "LiveProcess/main.m"
+    process_info = root / "LiveProcess/Info.plist"
+    info = plistlib.loads(process_info.read_bytes())
+    if info.get("XPCService", {}).get("_MultipleInstances") is not True:
+        raise ValueError("JIT multiplexing requires independent LiveProcess instances")
+    info["SIJITMultiplexedService"] = True
+    info["NSLocalNetworkUsageDescription"] = "Connect to this device through LocalDevVPN for guest JIT."
+    process_info.write_bytes(plistlib.dumps(info))
+    shutil.copyfile(here / "RequestRouter.m.inc", root / "LiveProcess/SIJITRequestRouter.inc")
+    replace(process, '#import <objc/message.h>',
+            '#import <objc/message.h>\n#include "SIJITRequestRouter.inc"', 1)
+    replace(process, '    extensionContext = context;',
+            '    if (si_route_jit_request(context, NSBundle.mainBundle.bundleURL, si_load_jit_service)) return;\n'
+            '    extensionContext = context;', 1)
+    replace(process, '    // Ensure app info is delivered',
+            '    if (si_jit_service_active) return 0; // never bootstrap a guest for a helper request\n'
+            '    // Ensure app info is delivered', 1)
     replace(process, '    // Check if we received a request to execute a custom payload',
             '    // Only the debugger flag gates loading here. It is NOT reported as\n'
             '    // completed JIT: the guest runtime must still execute its script protocol.\n'

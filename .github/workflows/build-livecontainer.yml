@@ -2,7 +2,7 @@ name: Build LiveContainer + SideInstaller
 
 on:
   push:
-    branches: [feature/livecontainer-sideinstaller]
+    branches: [feature/livecontainer-sideinstaller, feature/livecontainer-fewer-app-ids]
   pull_request:
     paths: ['embedded/**', 'ios-app/**', '.github/workflows/build-livecontainer.yml']
   workflow_dispatch:
@@ -56,6 +56,8 @@ jobs:
           /tmp/si-jit-preparation-tests
           swiftc embedded/jit/HostContext.swift embedded/jit/HostContextTests.swift -o /tmp/si-jit-host-context-tests
           env LC_HOME_PATH=/tmp/livecontainer-host /tmp/si-jit-host-context-tests
+          clang -fobjc-arc -fblocks -framework Foundation embedded/jit/RequestRouterTests.m -o /tmp/si-jit-router-tests
+          /tmp/si-jit-router-tests
           swiftc -D SIDEINSTALLER_EMBEDDED ios-app/EmbeddedSigningIdentity.swift embedded/IdentityTests.swift -o /tmp/si-identity-tests
           /tmp/si-identity-tests
           openssl req -x509 -newkey rsa:2048 -nodes -subj '/CN=Signing Fixture/OU=ABCDEFGHIJ' -days 1 -keyout /tmp/si-fixture.key -out /tmp/si-fixture.crt
@@ -104,7 +106,7 @@ jobs:
           python3 embedded/build_jit.py vendor-stikjit
           python3 embedded/check_script_runner.py vendor-stikjit
           xcodegen generate --spec vendor-stikjit/project.yml --project vendor-stikjit
-          xcodebuild -project vendor-stikjit/StikJIT.xcodeproj -scheme SIJITHelper \
+          xcodebuild -project vendor-stikjit/StikJIT.xcodeproj -scheme SIJITSupport \
             -configuration Release -sdk iphoneos -arch arm64 \
             -derivedDataPath build-embedded-jit \
             CODE_SIGNING_ALLOWED=NO CODE_SIGNING_REQUIRED=NO DEVELOPMENT_TEAM= \

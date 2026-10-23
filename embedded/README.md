@@ -22,12 +22,14 @@ permission denial, and run on the macOS build runner.
 
 ## Built-in guest JIT (experimental)
 
-Settings → JIT → **Built-in StikJIT (experimental)** enables an invisible
-`SIJITHelper.appex` bundled in the actual host. StikJIT is built from pinned
+Settings → JIT → **Built-in StikJIT (experimental)** uses a separate instance of
+the existing `LiveProcess.appex` service. The handler lives in
+`Frameworks/SIJITSupport.framework`, which is code signed without an additional
+provisioning profile or Apple App ID. StikJIT is built from pinned
 sources at `32287268fa5824f9edce4cb359f5833ce0cf7b00`, with one checked lifetime fix
 to hold ScriptRunner alive through its synchronous JavaScript callbacks:
 <https://github.com/StikDebug/StikJIT>. The framework is linked only into the
-helper and stored in the host's Frameworks directory. Its MPL license and
+JIT service framework and stored in the host's Frameworks directory. Its MPL license and
 source reference and modified MPL source travel in EmbeddedSourceNotices.
 
 Import a valid pairing plist in the JIT section, enable Developer Mode, and
@@ -67,6 +69,37 @@ notices remain in force. Do not publish or commercially redistribute the
 combined binary without resolving the upstream licensing requirements.
 
 ## Architecture
+
+### Fewer provisioned identifiers
+
+This flavour uses **five** App IDs instead of six: the existing host,
+LiveProcess, ShareExtension, LaunchAppExtension and PairingActivity. No retained
+extension is renamed. The former JITHelper extension is replaced by a dynamically
+loaded framework inside a distinct LiveProcess instance. Framework bundle IDs
+are not registered as App IDs by SideInstaller's existing signer.
+
+The request router runs before guest bootstrap or bundle/preference hooks. A
+typed JIT request loads the handler with its original NSExtensionContext; guest,
+refresh and custom-payload requests keep the existing route. Mixed or malformed
+JIT requests fail explicitly. `_MultipleInstances` remains required, so the
+debugger and guest can be separate processes. Existing target-PID/self-debug
+checks, timeout/cancellation, pairing handoff and script protocol remain in
+place. The helper's DDI cache now belongs to the LiveProcess service container;
+device preparation may need to download it once again. Pairing stays in the
+existing shared store.
+
+The host ID, app groups, keychain groups and four retained extension IDs stay
+the same. Update the existing combined app with the same signing team and ID;
+do not uninstall it to test this build. The old JITHelper App ID may continue
+counting against a personal team's quota until its existing registration
+expires. This build stops requesting it; it does not delete account identifiers.
+
+Packaging verifies the exact four-extension set and reports
+`provisionedBundleCount: 5`. Native routing checks run on macOS in CI. Device
+testing must still establish concurrent guest/helper isolation, guest JIT,
+refresh, sharing, launch Shortcuts and pairing Live Activities before claiming
+full runtime equivalence. The separate feature branch leaves the prior build
+available for comparison.
 
 The build pins LiveContainer to `4dbe0f9a626de801184a42c0be8d2cb105058e3d`.
 It adapts the existing embedded-SideStore loader, converts the **locally built**

@@ -43,6 +43,17 @@ def prepare(root):
     if (root / ".sideinstaller-adapted").exists():
         raise ValueError("Use a fresh upstream checkout, not an already adapted one.")
 
+    app_delegate = root / "LiveContainerSwiftUI/App/AppDelegate.swift"
+
+    replace(
+        app_delegate,
+        "newOptions!._setRequestFullscreen(UIScreen.main.bounds == self.keyWindow!.bounds)",
+        'newOptions!._setRequestFullscreen('
+        'LCUtils.appGroupUserDefault.integer(forKey: "LCMultitaskMode") == 1 || '
+        '(self.keyWindow?.bounds == UIScreen.main.bounds))',
+        1
+    )
+
     bootstrap = root / "LiveContainer/LCBootstrap.m"
     shutil.copyfile(embedded / "WineSocketCompat.c.inc", root / "LiveContainer/SIWineSocketCompat.inc")
     replace(bootstrap, '#include <mach-o/ldsyms.h>',
