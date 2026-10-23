@@ -1,0 +1,45 @@
+name: Build BCD SDK dependency repair
+on:
+  push:
+    branches: [fix/bcd-ntdsapi]
+    paths: ['repairs/bcd-sdk/**', '.github/workflows/repair-bcd-sdk.yml']
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  build:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install build dependencies
+        run: |
+          sudo apt-get update -qq
+          sudo apt-get install -y build-essential bison flex xz-utils python3-pefile
+      - name: Build and verify NTDSAPI repair
+        run: bash repairs/bcd-sdk/build.sh
+      - name: Upload repair IPA and module
+        uses: actions/upload-artifact@v4
+        with:
+          name: BCD-0.1.580-NTDSAPI-repair
+          path: |
+            out/*.ipa
+            out/ntdsapi.dll
+            out/verification.json
+            out/README.md
+            out/SHA256SUMS
+          if-no-files-found: error
+      - name: Upload corresponding source and build logs
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: BCD-NTDSAPI-source-and-logs
+          path: |
+            out/*source.tar.xz
+            out/*.log
+            out/*.patch
+            out/*.py
+            out/*.sh
+            out/README.md
+            out/COPYING.LIB
+          if-no-files-found: warn
