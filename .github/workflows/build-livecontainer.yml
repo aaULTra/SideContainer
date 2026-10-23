@@ -2,7 +2,7 @@ name: Build LiveContainer + SideInstaller
 
 on:
   push:
-    branches: [feature/livecontainer-sideinstaller]
+    branches: [feature/livecontainer-sideinstaller, fix/livecontainer-file-sharing]
   pull_request:
     paths: ['embedded/**', 'ios-app/**', '.github/workflows/build-livecontainer.yml']
   workflow_dispatch:
@@ -50,6 +50,9 @@ jobs:
         run: |
           python3 -m unittest discover -s embedded -p 'test_*.py' -v
           python3 embedded/prepare_livecontainer.py vendor-livecontainer
+          python3 embedded/check_share_routing.py vendor-livecontainer
+          swiftc -parse-as-library embedded/SISharePayloadLoader.swift embedded/SharePayloadTests.swift -o /tmp/si-share-payload-tests
+          /tmp/si-share-payload-tests
           swiftc ios-app/JITPairingStore.swift embedded/jit/PairingStoreTests.swift -o /tmp/si-pairing-store-tests
           /tmp/si-pairing-store-tests
           swiftc embedded/jit/Messages.swift embedded/jit/PreparationTests.swift -o /tmp/si-jit-preparation-tests
