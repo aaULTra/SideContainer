@@ -10,7 +10,6 @@
 #include <dlfcn.h>
 #include <errno.h>
 #include <mach/mach.h>
-#include <mach/mach_vm.h>
 #include <mach-o/dyld.h>
 #include <mach-o/loader.h>
 #include <stdint.h>
@@ -182,21 +181,21 @@ static void image_added(const struct mach_header *header, intptr_t slide) {
     if (!original_socketpair) original_socketpair=dlsym(RTLD_DEFAULT, "socketpair");
     if (!original_socketpair) { repair_log(@"Guard NOT installed: socketpair could not be resolved."); return; }
     uintptr_t *slot=(void *)(base+BCD_SOCKETPAIR_SLOT);
-    mach_vm_address_t page=(mach_vm_address_t)slot & ~((mach_vm_address_t)getpagesize()-1);
-    mach_vm_address_t region=page; mach_vm_size_t region_size=0;
+    vm_address_t page=(vm_address_t)slot & ~((vm_address_t)getpagesize()-1);
+    vm_address_t region=page; vm_size_t region_size=0;
     vm_region_basic_info_data_64_t info={0}; mach_msg_type_number_t count=VM_REGION_BASIC_INFO_COUNT_64;
     mach_port_t object=MACH_PORT_NULL;
-    kern_return_t kr=mach_vm_region(mach_task_self(), &region, &region_size, VM_REGION_BASIC_INFO_64, (vm_region_info_t)&info, &count, &object);
+    kern_return_t kr=vm_region_64(mach_task_self(), &region, &region_size, VM_REGION_BASIC_INFO_64, (vm_region_info_t)&info, &count, &object);
     if (object!=MACH_PORT_NULL) mach_port_deallocate(mach_task_self(), object);
     if (kr!=KERN_SUCCESS) { repair_log(@"Guard NOT installed: import protection could not be inspected."); return; }
-    kr=mach_vm_protect(mach_task_self(), page, (mach_vm_size_t)getpagesize(), FALSE, info.protection|VM_PROT_WRITE|VM_PROT_COPY);
+    kr=vm_protect(mach_task_self(), page, (vm_size_t)getpagesize(), FALSE, info.protection|VM_PROT_WRITE|VM_PROT_COPY);
     if (kr!=KERN_SUCCESS) { repair_log(@"Guard NOT installed: import pointer could not be made writable."); return; }
     image_base=base;
     server_ready=(void *)(base+BCD_READY);
     server_running=(void *)(base+BCD_RUNNING);
     client_running=(void *)(base+BCD_CLIENT_RUNNING);
     __atomic_store_n(slot, (uintptr_t)guarded_socketpair, __ATOMIC_RELEASE);
-    kr=mach_vm_protect(mach_task_self(), page, (mach_vm_size_t)getpagesize(), FALSE, info.protection);
+    kr=vm_protect(mach_task_self(), page, (vm_size_t)getpagesize(), FALSE, info.protection);
     if (kr!=KERN_SUCCESS) repair_log(@"Warning: import page protection restore failed.");
     installed=1;
     repair_log(@"Readiness guard installed for this BCD build; Wine client startup only.");
