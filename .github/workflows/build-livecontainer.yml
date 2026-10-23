@@ -3,6 +3,8 @@ on:
   push:
     branches: [fix/bcd-ntdsapi]
     paths: ['repairs/bcd-sdk/**', '.github/workflows/build-livecontainer.yml']
+  pull_request:
+    paths: ['repairs/bcd-sdk/**', '.github/workflows/build-livecontainer.yml']
   workflow_dispatch:
 permissions:
   contents: read
