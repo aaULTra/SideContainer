@@ -91,7 +91,7 @@ class MachO:
         end=32+self.command_size
         first=min(s['offset'] for s in self.sections if s['offset'])
         assert end+size<=first and not any(self.data[end:end+size]), 'No unused header padding'
-        command=struct.pack('<6I',0xc,size,24,0,0x10000,0x10000)+name
+        command=struct.pack('<6I',0xc,size,24,0,0,0)+name
         command+=bytes(size-len(command))
         d=bytearray(self.data)
         d[end:end+size]=command
