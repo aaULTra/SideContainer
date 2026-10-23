@@ -184,9 +184,11 @@ def verify(app):
     protocols = refresh["systemProtocols"]
     assert "com.apple.link.systemProtocol.ForegroundContinuable" in protocols
     assert "com.apple.link.systemProtocol.ProgressReporting" in protocols
-    expected_extensions = {"LiveProcess.appex", "ShareExtension.appex", "LaunchAppExtension.appex", "PairingActivity.appex"}
+    expected_extensions = {"LiveProcess.appex", "ShareExtension.appex", "LaunchAppExtension.appex", "SideInstallerLiveActivity.appex"}
     actual_extensions = {x.name for x in (app / "PlugIns").glob("*.appex")}
-    assert actual_extensions == expected_extensions, "Preserve sharing, launch intents, pairing activity and LiveProcess"
+    assert actual_extensions == expected_extensions, (
+        f"Extension layout mismatch: missing {sorted(expected_extensions - actual_extensions)}; "
+        f"unexpected {sorted(actual_extensions - expected_extensions)}")
     return {"host": HOST_ID, "guest": "SideInstaller", "containsSideStoreApp": False,
             "nativeRefreshIntent": True, "builtInGuestJIT": True,
             "jitFrameworkMetadataVerified": True,

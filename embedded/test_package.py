@@ -26,10 +26,10 @@ class PackageTests(unittest.TestCase):
         (process / "Info.plist").write_bytes(plistlib.dumps({
             "CFBundleIdentifier": package.HOST_ID + ".LiveProcess",
             "SIJITMultiplexedService": True, "XPCService": {"_MultipleInstances": True}}))
-        for name in ("ShareExtension", "LaunchAppExtension", "PairingActivity"):
+        for name in ("ShareExtension", "LaunchAppExtension", "SideInstallerLiveActivity"):
             extension = self.app / "PlugIns" / (name + ".appex")
             extension.mkdir()
-            (extension / "Info.plist").write_bytes(plistlib.dumps({"CFBundleIdentifier": package.HOST_ID + "." + name}))
+            (extension / "Info.plist").write_bytes(plistlib.dumps({"CFBundleIdentifier": package.HOST_ID + (".PairingActivity" if name == "SideInstallerLiveActivity" else "." + name)}))
         helper = self.app / "Frameworks/SIJITSupport.framework"
         helper.mkdir(parents=True)
         (helper / "SIJITSupport").write_bytes(b"framework")
@@ -101,7 +101,7 @@ class PackageTests(unittest.TestCase):
 
     def test_all_user_facing_extensions_are_preserved(self):
         import shutil
-        for name in ("ShareExtension", "LaunchAppExtension", "PairingActivity"):
+        for name in ("ShareExtension", "LaunchAppExtension", "SideInstallerLiveActivity"):
             with self.subTest(name=name), tempfile.TemporaryDirectory() as tmp:
                 clone = Path(tmp) / "LiveContainer.app"
                 shutil.copytree(self.app, clone)

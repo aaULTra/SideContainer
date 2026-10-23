@@ -7,9 +7,10 @@ set -euo pipefail
 export DEVELOPER_DIR="${DEVELOPER_DIR:-/Applications/Xcode-beta.app/Contents/Developer}"
 # Match the app's deployment floor, or cc-rs objects trip linker warnings.
 export IPHONEOS_DEPLOYMENT_TARGET="${IPHONEOS_DEPLOYMENT_TARGET:-17.4}"
-# Make ~/.cargo visible to non-login shells such as Xcode's.
-# shellcheck disable=SC1090
-source "$HOME/.cargo/env" 2>/dev/null || true
+# Make rustup tools visible without sourcing an external shell script under
+# nounset. A runner environment script can otherwise terminate this build
+# before cargo starts, even when source is followed by || true.
+export PATH="${CARGO_HOME:-$HOME/.cargo}/bin:$PATH"
 
 # Rewrite $HOME to /build, since Rust bakes absolute source paths in as string
 # constants that survive stripping and reach the app's log console.
