@@ -8,11 +8,11 @@ permissions:
   contents: read
   actions: read
 concurrency:
-  group: bcd-wine-runtime-v2-${{ github.ref_name }}
+  group: bcd-wine-runtime-intel-${{ github.ref_name }}
   cancel-in-progress: true
 jobs:
   repair:
-    runs-on: macos-latest
+    runs-on: macos-15-intel
     timeout-minutes: 25
     steps:
       - uses: actions/checkout@v4
