@@ -21,7 +21,7 @@ mkdir -p work/wine/build-native work/wine/build-arm64ec
 (
   cd work/wine/build-native
   ../configure --enable-win64 --without-x --without-freetype --without-gnutls --disable-tests > "$R/out/native-configure.log" 2>&1
-  make -j4 __tools__ include > "$R/out/native-make.log" 2>&1
+  make -j4 tools/winebuild/winebuild tools/winegcc/winegcc tools/widl/widl tools/wrc/wrc tools/wmc/wmc > "$R/out/native-make.log" 2>&1
 )
 (
   cd work/wine/build-arm64ec
