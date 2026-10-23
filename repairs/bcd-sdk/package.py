@@ -1,4 +1,5 @@
 """Verify the PE module and add just that module to the original BCD IPA."""
+import copy
 import hashlib
 import json
 import pathlib
@@ -42,7 +43,7 @@ with zipfile.ZipFile(original) as src:
     entry = farm + 'ntdsapi.dll'
     with zipfile.ZipFile(destination, 'w', compression=zipfile.ZIP_DEFLATED, compresslevel=6) as dst:
         for item in src.infolist():
-            dst.writestr(item, src.read(item.filename))
+            dst.writestr(copy.copy(item), src.read(item.filename))
         dst.writestr(entry, d)
     # Every existing bundle byte and identifier must be unchanged.
     with zipfile.ZipFile(destination) as check:
