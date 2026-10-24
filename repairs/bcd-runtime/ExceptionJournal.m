@@ -2,13 +2,14 @@
  * handling, or dereference guest addresses without a checked Mach read. */
 #import "Diagnostics.h"
 #include <mach/mach.h>
-#include <mach/mach_vm.h>
+
 #include <pthread.h>
 #include <unistd.h>
 #include <fcntl.h>
 #include <stdint.h>
 #include <string.h>
 #include <stdio.h>
+#include <errno.h>
 static int journal=-1;
 static size_t journal_bytes;
 static pthread_mutex_t lock=PTHREAD_MUTEX_INITIALIZER;
@@ -20,9 +21,9 @@ static __thread unsigned mask;
 static __thread int cpp;
 static ssize_t (*real_write)(int,const void *,size_t);
 static int read_guest(uint64_t address,void *out,size_t size) {
-    mach_vm_size_t got=0;
+    vm_size_t got=0;
     if (address<0x10000 || address>UINT64_MAX-size) return 0;
-    return mach_vm_read_overwrite(mach_task_self(),address,size,(mach_vm_address_t)out,&got)==KERN_SUCCESS && got==size;
+    return vm_read_overwrite(mach_task_self(),address,size,(vm_address_t)out,&got)==KERN_SUCCESS && got==size;
 }
 static void guest_string(uint64_t address,char *out,size_t cap) {
     size_t n=0; for (;n+1<cap;n++) {
@@ -33,7 +34,10 @@ static void guest_string(uint64_t address,char *out,size_t cap) {
 static void retain_line(const char *line) {
     pthread_mutex_lock(&lock);
     size_t n=strnlen(line,8191);
-    if (journal>=0 && journal_bytes+n+1<1024*1024) {
+    if (journal>=0 && journal_bytes+n+1>=1024*1024) {
+        ftruncate(journal,0);lseek(journal,0,SEEK_SET);journal_bytes=0;
+    }
+    if (journal>=0) {
         ssize_t a=real_write(journal,line,n),b=real_write(journal,"\n",1);
         if(a>0)journal_bytes+=(size_t)a; if(b>0)journal_bytes+=(size_t)b;
     }
@@ -67,11 +71,12 @@ static void observe_line(char *line) {
             if(mask==15){decode_cpp();cpp=0;}
         }
     }
-    const char *keys[]={"[exc]","trace:seh:","[exc-disp]","[fast-fail]","[term-stack]","[unwind] term","[exit-report]","[cage]","[autotune]","[BCD-","[dll-missing]","not found","UNHANDLED","gaps-exhausted","throw","what():","[init-peb]","[WineProc] Target",NULL};
+    const char *keys[]={"[exc]","code=","info[","[exc-disp]","[fast-fail]","[term-stack]","[unwind] term","[exit-report]","[cage]","[autotune]","[BCD-","[dll-missing]","not found","UNHANDLED","gaps-exhausted","throw","what():","[init-peb]","[WineProc] Target",NULL};
     for(int i=0;keys[i];i++)if(strstr(line,keys[i])){retain_line(line);break;}
 }
 static ssize_t observed_write(int fd,const void *bytes,size_t count) {
     ssize_t result=real_write(fd,bytes,count);
+    int saved_errno=errno;
     if(observing || fd!=STDERR_FILENO || result<=0)return result;
     observing=1;
     const char *p=bytes;
@@ -81,7 +86,7 @@ static ssize_t observed_write(int fd,const void *bytes,size_t count) {
         }
         if(p[i]!='\n')pending[pending_n++]=p[i];
     }
-    observing=0;return result;
+    observing=0;errno=saved_errno;return result;
 }
 void *BCDJournalWriteHook(void *original) { real_write=original;return observed_write; }
 void BCDJournalBegin(void) {
