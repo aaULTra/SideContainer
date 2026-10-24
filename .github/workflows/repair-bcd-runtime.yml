@@ -50,7 +50,7 @@ jobs:
           python3 - <<'PY'
           from pathlib import Path
           import zipfile
-          with zipfile.ZipFile('runtime-out/BCD-Diagnostics-v4-source.zip','w',zipfile.ZIP_DEFLATED) as z:
+          with zipfile.ZipFile('runtime-out/BCD-ChatGPT-Logs-v5-source.zip','w',zipfile.ZIP_DEFLATED) as z:
               for root,prefix in [(Path('prior-source'),'ntdsapi-source'),(Path('repairs/bcd-runtime'),'runtime-source'),(Path('runtime-build'),'build-metadata')]:
                   for p in root.rglob('*'):
                       if p.is_file() and p.suffix not in ['.dylib'] and p.name!='Madeira':z.write(p,str(Path(prefix)/p.relative_to(root)))
@@ -60,7 +60,7 @@ jobs:
       - name: Upload Wine repair IPA
         uses: actions/upload-artifact@v4
         with:
-          name: BCD-0.1.580-Diagnostics-v4
+          name: BCD-0.1.580-ChatGPT-Logs-v5
           path: |
             runtime-out/*.ipa
             runtime-out/RuntimeRepair.json
@@ -70,6 +70,6 @@ jobs:
       - name: Upload complete repair source
         uses: actions/upload-artifact@v4
         with:
-          name: BCD-Diagnostics-v4-source
-          path: runtime-out/BCD-Diagnostics-v4-source.zip
+          name: BCD-ChatGPT-Logs-v5-source
+          path: runtime-out/BCD-ChatGPT-Logs-v5-source.zip
           if-no-files-found: error

@@ -48,7 +48,7 @@ static void report_failure(NSString *message) {
                 UIViewController *view = window.rootViewController;
                 while (view.presentedViewController && !view.presentedViewController.isBeingDismissed) view = view.presentedViewController;
                 UIAlertController *alert = [UIAlertController alertControllerWithTitle:@"Wine could not start" message:message preferredStyle:UIAlertControllerStyleAlert];
-                [alert addAction:[UIAlertAction actionWithTitle:@"Copy diagnostic report" style:UIAlertActionStyleDefault handler:^(UIAlertAction *action) {
+                [alert addAction:[UIAlertAction actionWithTitle:@"Copy report for ChatGPT" style:UIAlertActionStyleDefault handler:^(UIAlertAction *action) {
                     dispatch_async(dispatch_get_global_queue(QOS_CLASS_UTILITY,0),^{
                         NSString *report=BCDCreateCurrentDiagnosticReport(nil);
                         dispatch_async(dispatch_get_main_queue(),^{ UIPasteboard.generalPasteboard.string=report; });

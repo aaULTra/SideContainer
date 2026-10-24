@@ -19,7 +19,28 @@ void BCDDiagnosticsBegin(const char *executable) {
     @synchronized(NSProcessInfo.class) {
         NSString *exe=executable ? [NSString stringWithUTF8String:executable] : @"";
         activeSession=[@{@"id":NSUUID.UUID.UUIDString, @"started":[NSISO8601DateFormatter.new stringFromDate:NSDate.date],
-            @"executable":exe ?: @"", @"phase":@"server_wait", @"repair":@4} mutableCopy];
+            @"executable":exe ?: @"", @"phase":@"server_wait", @"repair":@5} mutableCopy];
+        NSMutableDictionary *settings=NSMutableDictionary.new;
+        for(NSString *key in @[@"MADEIRA_CFG_GAME",@"MADEIRA_OPTIN_DLLS",@"MADEIRA_CAGE_RELEASE",@"MADEIRA_EXE",@"WINEDEBUG",@"MADEIRA_FEX_AVX",@"MADEIRA_PAD_MODE",@"MADEIRA_THREAD_STACK_SPILL",@"MADEIRA_JIT_NO_DEBUGGER_POOL"]) {
+            const char *value=getenv(key.UTF8String);if(value)settings[key]=[NSString stringWithUTF8String:value] ?: @"unreadable";
+        }
+        const char *cfg=getenv("MADEIRA_CFG_GAME");
+        if(cfg) {
+            NSString *config=[NSString stringWithContentsOfFile:[NSString stringWithUTF8String:cfg] encoding:NSUTF8StringEncoding error:nil];
+            NSMutableArray *safe=NSMutableArray.new;
+            for(NSString *line in [config componentsSeparatedByString:@"\n"]) {
+                NSString *trim=[line stringByTrimmingCharactersInSet:NSCharacterSet.whitespaceCharacterSet];
+                for(NSString *key in @[@"dxil-tess",@"sampler-reduction",@"ind-count",@"typed-view-align",@"typed-view-shadow",@"view-census",@"swap-mb",@"env.MADEIRA_CAGE_RELEASE",@"env.MADEIRA_OPTIN_DLLS",@"env.MADEIRA_THREAD_STACK_SPILL",@"env.MADEIRA_PAD_MODE"]) {
+                    NSRange eq=[trim rangeOfString:@"="];
+                    if(eq.location!=NSNotFound && [[[trim substringToIndex:eq.location] stringByTrimmingCharactersInSet:NSCharacterSet.whitespaceCharacterSet] isEqualToString:key]) {[safe addObject:trim];break;}
+                }
+            }
+            settings[@"game_config"]=[safe componentsJoinedByString:@"\n"];
+        }
+        activeSession[@"launch_settings"]=settings;
+        activeSession[@"physical_memory_bytes"]=@(NSProcessInfo.processInfo.physicalMemory);
+        activeSession[@"low_power"]=@(NSProcessInfo.processInfo.lowPowerModeEnabled);
+        activeSession[@"thermal_state"]=@(NSProcessInfo.processInfo.thermalState);
         saveSession();
         fprintf(stderr,"%s%s\n",marker.UTF8String,[activeSession[@"id"] UTF8String]);
     }
@@ -91,6 +112,7 @@ static NSString *tail(NSURL *url) {
     NSInputStream *stream=[NSInputStream inputStreamWithURL:url];[stream open];
     NSMutableString *partial=NSMutableString.new;
     NSMutableArray *events=NSMutableArray.new,*recent=NSMutableArray.new;
+    NSString *lastMarker=nil;
     uint8_t buffer[65536]; NSInteger n; NSUInteger total=0;
     while((n=[stream read:buffer maxLength:sizeof(buffer)])>0) {
         total+=(NSUInteger)n;
@@ -100,9 +122,9 @@ static NSString *tail(NSURL *url) {
         while((end=[partial rangeOfString:@"\n"]).location!=NSNotFound) {
             NSString *line=[partial substringToIndex:end.location];
             [partial deleteCharactersInRange:NSMakeRange(0,end.location+1)];
-            if([line containsString:marker]) {[events removeAllObjects];[recent removeAllObjects];}
+            if([line containsString:marker]) {lastMarker=line;[events removeAllObjects];[recent removeAllObjects];}
             NSString *low=line.lowercaseString;
-            NSArray *keys=@[@"[bcd-",@"fatal:",@"[exc]",@"[exc-disp]",@"info[",@"[fast-fail]",@"[term-stack]",@"[unwind] term",@"[exit-report]",@"[cage]",@"gaps-exhausted",@"unhandled",@"not found",@"unimplemented function",@"unimplemented stub",@"[lc-winesocket]",@"[autotune]",@"[win-name]",@"[init-peb]"];
+            NSArray *keys=@[@"[bcd-",@"fatal:",@"[exc]",@"[exc-disp]",@"info[",@"[fast-fail]",@"[term-stack]",@"[unwind] term",@"[exit-report]",@"[cage]",@"gaps-exhausted",@"unhandled",@"not found",@"unimplemented function",@"unimplemented stub",@"[lc-winesocket]",@"[autotune]",@"[win-name]",@"[init-peb]",@"[device]",@"[game-cfg]",@"[madeira-env]",@"[jit-pool]",@"[display-shape]",@"[launch-route]",@"[wineproc] target",@"[pool-rot]",@"[footprint]",@"[madeira-d3d12] unimplemented"];
             BOOL keep=NO;for(NSString *key in keys)if([low containsString:key]){keep=YES;break;}
             if(keep){[events addObject:line];if(events.count>250)[events removeObjectAtIndex:0];}
             [recent addObject:line];if(recent.count>15)[recent removeObjectAtIndex:0];
@@ -112,15 +134,45 @@ static NSString *tail(NSURL *url) {
     }
     [stream close];
     if(partial.length)[recent addObject:partial];
+    if(lastMarker)[events insertObject:lastMarker atIndex:0];
     [events addObjectsFromArray:recent];return [events componentsJoinedByString:@"\n"];
 }
 NSString *BCDDiagnosticReport(NSURL *documents,NSURL *bundle,NSDictionary *session,NSArray<NSURL *> *logs) {
-    NSMutableString *report=[NSMutableString stringWithString:@"BCD diagnostic report v4\n"];
+    if(logs.count>1) {
+        NSString *wanted=session[@"id"] ? [marker stringByAppendingString:session[@"id"]] : nil;
+        NSMutableArray *isolated=NSMutableArray.new;
+        if(wanted)for(NSURL *url in logs)if([tail(url) containsString:wanted])[isolated addObject:url];
+        logs=isolated.count ? isolated : @[logs.firstObject];
+    }
+    NSMutableString *report=[NSMutableString stringWithString:@"BCD diagnostic report v5 — ChatGPT\n"];
     NSString *exe=session[@"executable"] ?: @"";
     NSString *target=[[exe stringByReplacingOccurrencesOfString:@"\\" withString:@"/"] lastPathComponent];
     char machine[128]={0}; size_t len=sizeof(machine); sysctlbyname("hw.machine",machine,&len,NULL,0);
-    [report appendFormat:@"Build: 0.1.580; repair: 4\nDevice: %s; %@\nLast launch: %@\nTarget: %@\nSession: %@\nStartup phase: %@\n",machine,NSProcessInfo.processInfo.operatingSystemVersionString,session[@"started"] ?: @"unknown",target.length ? target : @"unknown",session[@"id"] ?: @"unknown",session[@"phase"] ?: @"no recorded launch"];
+    [report appendFormat:@"Build: 0.1.580; repair: 5\nDevice: %s; %@\nLast launch: %@\nTarget: %@\nSession: %@\nStartup phase: %@\n",machine,NSProcessInfo.processInfo.operatingSystemVersionString,session[@"started"] ?: @"unknown",target.length ? target : @"unknown",session[@"id"] ?: @"unknown",session[@"phase"] ?: @"no recorded launch"];
+    [report appendString:@"Purpose: diagnose this single launch. Observations below are evidence, not a confirmed root cause. No automatic upload.\n"];
+    [report appendFormat:@"Launch device state: RAM=%@ bytes; low_power=%@; thermal=%@ (0 nominal, 1 fair, 2 serious, 3 critical)\n",session[@"physical_memory_bytes"] ?: @"unrecorded",session[@"low_power"] ?: @"unrecorded",session[@"thermal_state"] ?: @"unrecorded"];
+    NSDictionary *settings=session[@"launch_settings"];
+    [report appendString:@"\nRecorded launch configuration (allowlisted):\n"];
+    if(!settings.count)[report appendString:@"Not recorded by this diagnostic version.\n"];
+    for(NSString *key in [settings.allKeys sortedArrayUsingSelector:@selector(compare:)])[report appendFormat:@"%@: %@\n",key,settings[key]];
     if (session[@"reason"]) [report appendFormat:@"Startup detail: %@\n",session[@"reason"]];
+    [report appendString:@"\nFailure summary (observed records, newest per category):\n"];
+    NSMutableDictionary *summary=NSMutableDictionary.new;
+    for(NSURL *source in logs) {
+        NSString *sample=tail(source);
+        for(NSString *line in [sample componentsSeparatedByString:@"\n"]) {
+            NSString *key=nil;
+            if([line containsString:@"[exit-report]"])key=@"Game exit";
+            else if([line containsString:@"[fast-fail]"])key=@"Last terminal exception";
+            else if([line containsString:@"[cage]"])key=@"Address reservation";
+            else if([line containsString:@"server VERIFIED"])key=@"Wine startup";
+            else if([line containsString:@"[BCD-CppException]"])key=@"Decoded C++ exception";
+            if(key && !summary[key])summary[key]=line; // supplied sources are newest first
+            else if(key && source==logs.firstObject)summary[key]=line;
+        }
+    }
+    for(NSString *key in @[@"Game exit",@"Last terminal exception",@"Decoded C++ exception",@"Wine startup",@"Address reservation"])
+        [report appendFormat:@"%@: %@\n",key,summary[key] ?: @"not captured (not proof of success)"];
     [report appendString:@"Bundled Wine modules:\n"];
     for (NSString *module in @[@"ntdsapi.dll",@"tbs-optin.dll",@"evr-optin.dll",@"dxva2-optin.dll"]) {
         BOOL present=[NSFileManager.defaultManager isReadableFileAtPath:[[bundle URLByAppendingPathComponent:@"arm64ec-windows"] URLByAppendingPathComponent:module].path];
@@ -143,7 +195,9 @@ NSString *BCDDiagnosticReport(NSURL *documents,NSURL *bundle,NSDictionary *sessi
     if(journalText.length) {
         [report appendString:@"\nPreserved exception journal (game and child process IDs are separate):\n"];
         NSArray *journalLines=[journalText componentsSeparatedByString:@"\n"];
-        for(NSString *line in journalLines)if([line containsString:@"[BCD-CppException]"])[report appendFormat:@"%@\n",line];
+        BOOL decoded=NO;
+        for(NSString *line in journalLines)if([line containsString:@"[BCD-CppException]"]){[report appendFormat:@"%@\n",line];decoded=YES;}
+        if(!decoded)[report appendString:@"Exception type/message capture: no decoded record. Capture may be incomplete; this does not establish SDK success.\n"];
     }
     [report appendString:@"\nObserved log evidence (bounded; no automatic upload):\n"];
     NSString *sessionMarker=session[@"id"] ? [marker stringByAppendingString:session[@"id"]] : nil;
@@ -151,7 +205,8 @@ NSString *BCDDiagnosticReport(NSURL *documents,NSURL *bundle,NSDictionary *sessi
     if (sessionMarker) for (NSURL *url in logs) if ([tail(url) containsString:sessionMarker]) [matching addObject:url];
     if (matching.count) logs=matching;
     else if (logs.count>1) logs=@[logs.firstObject];
-    if(journalText.length) logs=[@[journal] arrayByAddingObjectsFromArray:logs];
+    if(journalText.length) logs=[logs arrayByAddingObject:journal];
+    else [report appendString:@"Failure journal: unavailable. Raw-log fallback used; capture completeness is limited.\n"];
     unsigned used=0;
     for (NSURL *url in logs) {
         if (used++>=3) break;
@@ -169,7 +224,7 @@ NSString *BCDDiagnosticReport(NSURL *documents,NSURL *bundle,NSDictionary *sessi
         NSMutableOrderedSet *evidence=NSMutableOrderedSet.new;
         for (NSUInteger i=0;i<lines.count;i++) {
             NSString *line=lines[i]; NSString *low=line.lowercaseString;
-            BOOL relevant=[low containsString:@"[exc]"] || [low containsString:@"info["] || [low containsString:@"[exc-disp]"] || [low containsString:@"[fast-fail]"] || [low containsString:@"[term-stack]"] || [low containsString:@"[unwind] term"] || [low containsString:@"[exit-report]"] || [low containsString:@"[cage]"] || [low containsString:@"[bcd-cppexception]"] || [low containsString:@"[dll-missing]"] || [low containsString:@"err:module:import_dll"] || [low containsString:@"unimplemented function"] || [low containsString:@"unimplemented stub"] || [low containsString:@"fatal:"] || [low containsString:@"unhandled exception"] || [low containsString:@"[bcd-winestartup]"] || [low containsString:@"[bcd-diagnostics]"] || ([low containsString:@"[win-name]"] && ([low containsString:@"sdk"] || [low containsString:@"error"])) || ([low containsString:@"[lc-winesocket]"] && ([low containsString:@"retry"] || [low containsString:@"errno=1"]));
+            BOOL relevant=[low containsString:@"[device]"] || [low containsString:@"[game-cfg]"] || [low containsString:@"[madeira-env]"] || [low containsString:@"[jit-pool]"] || [low containsString:@"[pool-rot]"] || [low containsString:@"[display-shape]"] || [low containsString:@"[exc]"] || [low containsString:@"info["] || [low containsString:@"[exc-disp]"] || [low containsString:@"[fast-fail]"] || [low containsString:@"[term-stack]"] || [low containsString:@"[unwind] term"] || [low containsString:@"[exit-report]"] || [low containsString:@"[cage]"] || [low containsString:@"[bcd-cppexception]"] || [low containsString:@"[dll-missing]"] || [low containsString:@"err:module:import_dll"] || [low containsString:@"unimplemented function"] || [low containsString:@"unimplemented stub"] || [low containsString:@"fatal:"] || [low containsString:@"unhandled exception"] || [low containsString:@"[bcd-winestartup]"] || [low containsString:@"[bcd-diagnostics]"] || ([low containsString:@"[win-name]"] && ([low containsString:@"sdk"] || [low containsString:@"error"])) || ([low containsString:@"[lc-winesocket]"] && ([low containsString:@"retry"] || [low containsString:@"errno=1"]));
             if (relevant) { if (evidence.count>=90) [evidence removeObjectAtIndex:0]; [evidence addObject:line]; }
         }
         if (!evidence.count) [report appendString:@"No selected loader/SDK/fatal line in this log window.\n"];
@@ -181,6 +236,7 @@ NSString *BCDDiagnosticReport(NSURL *documents,NSURL *bundle,NSDictionary *sessi
     }
     if (!logs.count) [report appendString:@"No log files available. Reproduce the error, then export BCD's log.\n"];
     [report appendString:@"\nInterpretation: a C++ throw can be handled normally. Correlate its process/thread and stack with the final fast-fail. 0xc0000409 alone does not identify the root cause. Unavailable type/message means capture was incomplete, not SDK success.\n"];
+    [report appendString:@"\nAnalysis handoff: identify the final failing process first; separate handled exceptions from terminal errors; compare the effective config with observed allocation/loader failures; state what is proven and what remains unknown before suggesting a change.\n"];
     report=[BCDScrubDiagnostic(report) mutableCopy];
     // Bound pasted text by UTF-8 bytes, preserving the report prefix and evidence.
     while ([report lengthOfBytesUsingEncoding:NSUTF8StringEncoding]>23900 && report.length>100) [report deleteCharactersInRange:NSMakeRange(report.length-100,100)];
