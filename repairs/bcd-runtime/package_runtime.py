@@ -54,7 +54,7 @@ def package(ipa,dylib,out):
                 'bundle_id':info['CFBundleIdentifier'],'modified_entries':list(changed),'added_entry':lib,
                 'all_other_entries_unchanged':True,'original_executable_instructions_unchanged':True,
                 'ghost_recommendation_version':ghost['version'],'guard_timeout_seconds':10,
-                'diagnostics_version':5,'copy_action':'Settings > Logs > Export BCD log > Copy diagnostic report','guard_metadata':m.startup_metadata(),'device_test_pending':True}
+                'diagnostics_version':5,'copy_action':'Settings > Logs > Export BCD log > Copy report for ChatGPT','guard_metadata':m.startup_metadata(),'device_test_pending':True}
         (out/'RuntimeRepair.json').write_text(json.dumps(report,indent=2)+'\n')
         print(json.dumps(report,indent=2))
 

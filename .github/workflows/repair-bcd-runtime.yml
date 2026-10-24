@@ -42,7 +42,7 @@ jobs:
           SDK=$(xcrun --sdk iphoneos --show-sdk-path)
           xcrun --sdk iphoneos clang -arch arm64 -isysroot "$SDK" -miphoneos-version-min=18.0 -O2 -g -fobjc-arc \
             -dynamiclib -I runtime-build -I repairs/bcd-runtime repairs/bcd-runtime/BCDStartupGuard.m repairs/bcd-runtime/ExceptionJournal.m repairs/bcd-runtime/DiagnosticsCore.m repairs/bcd-runtime/DiagnosticsUI.m repairs/bcd-runtime/PEImports.c \
-            -framework Foundation -framework UIKit -install_name @rpath/BCDStartupGuard.dylib \
+            -framework Foundation -framework UIKit -framework CoreGraphics -install_name @rpath/BCDStartupGuard.dylib \
             -o runtime-build/BCDStartupGuard.dylib
           codesign --force --sign - runtime-build/BCDStartupGuard.dylib
           python3 repairs/bcd-runtime/package_runtime.py package base-artifact/BCD-0.1.580-NTDSAPI-repair.ipa --dylib runtime-build/BCDStartupGuard.dylib --out runtime-out
