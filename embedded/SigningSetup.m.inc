@@ -1,5 +1,6 @@
 // Embedded signing setup. Certificate availability is not proof of iOS trust.
 + (NSString *)embeddedCertificateError:(NSData *)p12 password:(NSString *)password hostBundle:(NSBundle *)host {
+    if (!p12.length || !password || !host) return @"The signing certificate or password is unavailable. Check signing again after signing in.";
     NSData *profile = [NSData dataWithContentsOfURL:[host.bundleURL URLByAppendingPathComponent:@"embedded.mobileprovision"]];
     if (!profile) return @"The installed host profile is missing. Reinstall this combined build with all extensions retained.";
     NSRange start = [profile rangeOfData:[@"<?xml" dataUsingEncoding:NSUTF8StringEncoding] options:0 range:NSMakeRange(0, profile.length)];
@@ -8,9 +9,12 @@
     if (end.location == NSNotFound) return @"The installed host profile is incomplete.";
     NSDictionary *dict = [NSPropertyListSerialization propertyListWithData:[profile subdataWithRange:NSMakeRange(start.location, NSMaxRange(end) - start.location)] options:0 format:nil error:nil];
     if (![dict isKindOfClass:NSDictionary.class]) return @"The installed host profile is unreadable.";
-    NSString *team = [self getCertTeamIdWithKeyData:p12 password:password];
     NSString *hostTeam = dict[@"Entitlements"][@"com.apple.developer.team-identifier"];
-    if (!team || ![team isEqualToString:hostTeam]) return @"The signing certificate belongs to a different team. Sign in to SideInstaller with the account/team that signed this LiveContainer. No active certificate was replaced.";
+    if (![hostTeam isKindOfClass:NSString.class] || !hostTeam.length) return @"The installed signing profile has no readable team. Update this app using the same Apple account.";
+    NSString *processTeam = LCSharedUtils.teamIdentifier;
+    if (processTeam.length && ![processTeam isEqualToString:hostTeam]) return @"The installed profile and running app have different teams. Update this app using its original Apple account.";
+    NSString *profileIdentifier = dict[@"Entitlements"][@"application-identifier"];
+    if (![profileIdentifier isEqualToString:[NSString stringWithFormat:@"%@.%@", hostTeam, host.bundleIdentifier]]) return @"The installed profile belongs to a different app. Update this app with its matching signing profile.";
     CFArrayRef items = NULL;
     OSStatus status = SecPKCS12Import((__bridge CFDataRef)p12, (__bridge CFDictionaryRef)@{(__bridge NSString *)kSecImportExportPassphrase: password}, &items);
     NSArray *imported = CFBridgingRelease(items);
@@ -21,9 +25,9 @@
     NSData *der = CFBridgingRelease(SecCertificateCopyData(cert));
     CFRelease(cert);
     NSArray *allowed = dict[@"DeveloperCertificates"];
-    if (![allowed isKindOfClass:NSArray.class] || ![allowed containsObject:der]) return @"This LiveContainer was installed with a different signing certificate. Open the built-in SideInstaller → Set up LiveContainer → Repair signing. Your existing active certificate was kept.";
+    if (![allowed isKindOfClass:NSArray.class] || ![allowed containsObject:der]) return @"The installed profile does not include this signing certificate. Update this app's signing profile using the same Apple account. The active certificate was kept.";
     NSDate *expiry = dict[@"ExpirationDate"];
-    if (![expiry isKindOfClass:NSDate.class] || [expiry timeIntervalSinceNow] <= 0) return @"The installed host profile has expired. Use Set up LiveContainer → Repair signing.";
+    if (![expiry isKindOfClass:NSDate.class] || [expiry timeIntervalSinceNow] <= 0) return @"The installed signing profile has expired. Update this app's signing profile.";
     return nil;
 }
 

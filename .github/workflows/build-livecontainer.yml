@@ -41,7 +41,7 @@ jobs:
           path: vendor-stikjit
       - name: Install build tools
         run: |
-          brew install xcodegen ldid
+          brew install xcodegen ldid openssl@3
           python3 -m pip install --break-system-packages pyyaml
           rustup target add aarch64-apple-ios aarch64-apple-ios-sim
           echo "DEVELOPER_DIR=$(xcode-select -p)" >> "$GITHUB_ENV"
@@ -61,8 +61,12 @@ jobs:
           env LC_HOME_PATH=/tmp/livecontainer-host /tmp/si-jit-host-context-tests
           swiftc -D SIDEINSTALLER_EMBEDDED ios-app/EmbeddedSigningIdentity.swift embedded/IdentityTests.swift -o /tmp/si-identity-tests
           /tmp/si-identity-tests
+          swiftc -D SIDEINSTALLER_EMBEDDED ios-app/EmbeddedSigningCheck.swift embedded/SigningStateTests.swift -o /tmp/si-signing-state-tests
+          /tmp/si-signing-state-tests
           openssl req -x509 -newkey rsa:2048 -nodes -subj '/CN=Signing Fixture/OU=ABCDEFGHIJ' -days 1 -keyout /tmp/si-fixture.key -out /tmp/si-fixture.crt
           openssl pkcs12 -export -inkey /tmp/si-fixture.key -in /tmp/si-fixture.crt -out /tmp/si-fixture.p12 -passout pass:fixture -keypbe PBE-SHA1-3DES -certpbe PBE-SHA1-3DES -macalg sha1
+          clang++ -std=c++17 -fobjc-arc -framework Foundation -I "$(brew --prefix openssl@3)/include" -L "$(brew --prefix openssl@3)/lib" -lcrypto embedded/CertificateMetadataTests.mm -o /tmp/si-certificate-metadata-tests
+          /tmp/si-certificate-metadata-tests /tmp/si-fixture.crt
           clang -fobjc-arc -fblocks -framework Foundation -framework Security embedded/SigningSetupTests.m -o /tmp/si-activation-tests
           /tmp/si-activation-tests /tmp/si-fixture.p12
           rm /tmp/si-fixture.key /tmp/si-fixture.crt /tmp/si-fixture.p12

@@ -17,11 +17,13 @@ static NSUserDefaults *hostDefaults;
 @interface LCSharedUtils : NSObject
 + (NSString *)appGroupID;
 + (NSURL *)appGroupPath;
++ (NSString *)teamIdentifier;
 @end
 @implementation LCSharedUtils
 // Simulate a fresh suite being redirected into a guest preference domain.
 + (NSString *)appGroupID { return [suite stringByAppendingString:@".guest"]; }
 + (NSURL *)appGroupPath { return directory; }
++ (NSString *)teamIdentifier { return @"ABCDEFGHIJ"; }
 @end
 
 @interface LCUtils : NSObject
@@ -31,8 +33,8 @@ static NSUserDefaults *hostDefaults;
 @end
 static bool checkCodeSignature(const char *path) { abort(); } // Never fake a passed iOS trust test.
 @implementation LCUtils
-// Isolate certificate/profile membership from the upstream OpenSSL OU parser.
-+ (NSString *)getCertTeamIdWithKeyData:(NSData *)data password:(NSString *)password { return @"ABCDEFGHIJ"; }
+// A broken/empty legacy team parser must not reject an exact authorised leaf.
++ (NSString *)getCertTeamIdWithKeyData:(NSData *)data password:(NSString *)password { return nil; }
 + (void)setCertificatePassword:(NSString *)password {
     [[[NSUserDefaults alloc] initWithSuiteName:suite] setObject:password forKey:@"LCCertificatePassword"];
 }
@@ -67,7 +69,8 @@ int main(int argc, const char **argv) {
         require(SecIdentityCopyCertificate(identity, &cert) == errSecSuccess, @"fixture certificate");
         NSData *der = CFBridgingRelease(SecCertificateCopyData(cert)); CFRelease(cert);
         NSMutableDictionary *profile = [@{
-            @"Entitlements": @{@"com.apple.developer.team-identifier": @"ABCDEFGHIJ"},
+            @"Entitlements": @{@"com.apple.developer.team-identifier": @"ABCDEFGHIJ",
+                                @"application-identifier": @"ABCDEFGHIJ.com.aault.signing.fixture"},
             @"DeveloperCertificates": @[[NSData dataWithBytes:"other" length:5]],
             @"ExpirationDate": [NSDate dateWithTimeIntervalSinceNow:3600]
         } mutableCopy];
@@ -77,13 +80,14 @@ int main(int argc, const char **argv) {
         NSData *sentinel = [@"keep-existing" dataUsingEncoding:NSUTF8StringEncoding];
         [defaults setObject:sentinel forKey:@"LCCertificateData"];
         [defaults setObject:@"keep-password" forKey:@"LCCertificatePassword"];
-        for (NSUInteger scenario = 0; scenario < 4; scenario++) {
+        for (NSUInteger scenario = 0; scenario < 5; scenario++) {
             if (scenario == 1) profile[@"DeveloperCertificates"] = @[der];
             if (scenario == 2) profile[@"ExpirationDate"] = [NSDate dateWithTimeIntervalSinceNow:-3600];
             if (scenario == 3) {
                 profile[@"ExpirationDate"] = [NSDate dateWithTimeIntervalSinceNow:3600];
                 profile[@"Entitlements"] = @{@"com.apple.developer.team-identifier": @"OTHERTEAM1"};
             }
+            if (scenario == 4) profile[@"Entitlements"] = @{@"com.apple.developer.team-identifier": @"ABCDEFGHIJ", @"application-identifier": @"ABCDEFGHIJ.another.app"};
             // Use XML, like the XML payload in a signed mobileprovision.
             [[NSPropertyListSerialization dataWithPropertyList:profile format:NSPropertyListXMLFormat_v1_0 options:0 error:nil] writeToURL:profileURL atomically:YES];
             NSString *issue = [LCUtils embeddedActivateCertificate:p12 password:scenario == 1 ? @"wrong" : @"fixture" hostBundle:bundle];
@@ -91,14 +95,15 @@ int main(int argc, const char **argv) {
             require([[defaults dataForKey:@"LCCertificateData"] isEqual:sentinel], @"rejection must retain active certificate");
             require([[defaults stringForKey:@"LCCertificatePassword"] isEqual:@"keep-password"], @"rejection must retain password");
         }
-        profile[@"Entitlements"] = @{@"com.apple.developer.team-identifier": @"ABCDEFGHIJ"};
+        profile[@"Entitlements"] = @{@"com.apple.developer.team-identifier": @"ABCDEFGHIJ",
+                                    @"application-identifier": @"ABCDEFGHIJ.com.aault.signing.fixture"};
         [[NSPropertyListSerialization dataWithPropertyList:profile format:NSPropertyListXMLFormat_v1_0 options:0 error:nil] writeToURL:profileURL atomically:YES];
         require([LCUtils embeddedActivateCertificate:p12 password:@"fixture" hostBundle:bundle] == nil, @"authorised identity activation");
         require([[defaults dataForKey:@"LCCertificateData"] isEqual:p12], @"activated identity");
         require([[defaults stringForKey:@"LCCertificatePassword"] isEqual:@"fixture"], @"activated password");
         [defaults removePersistentDomainForName:suite];
         [manager removeItemAtURL:directory error:nil];
-        puts("Production activation gate passed: mismatched leaf, wrong password, expired profile, wrong team, and authorised identity.");
+        puts("Production activation gate passed: mismatched leaf, wrong password, expired profile, wrong team, wrong app, and authorised identity.");
     }
     return 0;
 }
