@@ -1,0 +1,75 @@
+name: Build BCD diagnostics and Wine repair
+on:
+  push:
+    branches: [fix/bcd-ntdsapi]
+    paths: ['repairs/bcd-runtime/**', '.github/workflows/repair-bcd-runtime.yml']
+  workflow_dispatch:
+permissions:
+  contents: read
+  actions: read
+concurrency:
+  group: bcd-wine-runtime-intel-${{ github.ref_name }}
+  cancel-in-progress: true
+jobs:
+  repair:
+    runs-on: macos-15-intel
+    timeout-minutes: 25
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          sparse-checkout: repairs/bcd-runtime
+      - name: Download the verified NTDSAPI base build
+        uses: actions/download-artifact@v4
+        with:
+          name: BCD-0.1.580-NTDSAPI-repair
+          run-id: 40001793885
+          github-token: ${{ secrets.GITHUB_TOKEN }}
+          path: base-artifact
+      - name: Download corresponding NTDSAPI source
+        uses: actions/download-artifact@v4
+        with:
+          name: BCD-NTDSAPI-source-and-logs
+          run-id: 40001793885
+          github-token: ${{ secrets.GITHUB_TOKEN }}
+          path: prior-source
+      - name: Run readiness and native import-hook tests
+        run: bash repairs/bcd-runtime/test-native.sh
+      - name: Compile the iOS startup guard and package the IPA
+        shell: bash
+        run: |
+          python3 repairs/bcd-runtime/package_runtime.py prepare base-artifact/BCD-0.1.580-NTDSAPI-repair.ipa --work runtime-build
+          python3 repairs/bcd-runtime/macho_guard.py runtime-build/Madeira --header runtime-build/GuardImage.h --metadata runtime-build/GuardImage.json
+          SDK=$(xcrun --sdk iphoneos --show-sdk-path)
+          xcrun --sdk iphoneos clang -arch arm64 -isysroot "$SDK" -miphoneos-version-min=18.0 -O2 -g -fobjc-arc \
+            -dynamiclib -I runtime-build -I repairs/bcd-runtime repairs/bcd-runtime/BCDStartupGuard.m repairs/bcd-runtime/ExceptionJournal.m repairs/bcd-runtime/DiagnosticsCore.m repairs/bcd-runtime/DiagnosticsUI.m repairs/bcd-runtime/PEImports.c \
+            -framework Foundation -framework UIKit -framework CoreGraphics -install_name @rpath/BCDStartupGuard.dylib \
+            -o runtime-build/BCDStartupGuard.dylib
+          codesign --force --sign - runtime-build/BCDStartupGuard.dylib
+          python3 repairs/bcd-runtime/package_runtime.py package base-artifact/BCD-0.1.580-NTDSAPI-repair.ipa --dylib runtime-build/BCDStartupGuard.dylib --out runtime-out
+          cp repairs/bcd-runtime/README.md runtime-out/
+          python3 - <<'PY'
+          from pathlib import Path
+          import zipfile
+          with zipfile.ZipFile('runtime-out/BCD-ChatGPT-Logs-v5-source.zip','w',zipfile.ZIP_DEFLATED) as z:
+              for root,prefix in [(Path('prior-source'),'ntdsapi-source'),(Path('repairs/bcd-runtime'),'runtime-source'),(Path('runtime-build'),'build-metadata')]:
+                  for p in root.rglob('*'):
+                      if p.is_file() and p.suffix not in ['.dylib'] and p.name!='Madeira':z.write(p,str(Path(prefix)/p.relative_to(root)))
+              z.write('runtime-out/RuntimeRepair.json','RuntimeRepair.json')
+          PY
+          shasum -a 256 runtime-out/*.ipa runtime-out/*.zip > runtime-out/SHA256SUMS
+      - name: Upload Wine repair IPA
+        uses: actions/upload-artifact@v4
+        with:
+          name: BCD-0.1.580-ChatGPT-Logs-v5
+          path: |
+            runtime-out/*.ipa
+            runtime-out/RuntimeRepair.json
+            runtime-out/README.md
+            runtime-out/SHA256SUMS
+          if-no-files-found: error
+      - name: Upload complete repair source
+        uses: actions/upload-artifact@v4
+        with:
+          name: BCD-ChatGPT-Logs-v5-source
+          path: runtime-out/BCD-ChatGPT-Logs-v5-source.zip
+          if-no-files-found: error
