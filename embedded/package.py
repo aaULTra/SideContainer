@@ -9,6 +9,8 @@ import struct
 import subprocess
 from pathlib import Path
 
+from bundled_libraries import normalize as normalize_libraries, verify as verify_libraries
+
 HOST_ID = "com.aault.livecontainer.sideinstaller"
 
 
@@ -65,7 +67,6 @@ def package(host, guest, output, dylibify, upstream, jit_products, jit_source):
     converted.replace(binary)
     # Same conversion used by upstream's embedded SideStore flavour.
     # A normal sideloader must sign the finished host/frameworks/extensions.
-    subprocess.run(["ldid", "-S", str(binary)], check=True)
     if struct.unpack_from("<I", binary.read_bytes(), 12)[0] != 6:
         raise ValueError("Embedded SideInstaller was not converted to MH_DYLIB.")
     shutil.copyfile(upstream / ".github/sidelc/LCAppInfo.plist", framework / "LCAppInfo.plist")
@@ -109,7 +110,13 @@ def package(host, guest, output, dylibify, upstream, jit_products, jit_source):
     for provision in app.rglob("embedded.mobileprovision"):
         provision.unlink()
 
+    # @executable_path can be redirected to an embedded guest. Bundled dylibs
+    # must resolve beside their actual loader, not inside the guest framework.
+    changed_images = normalize_libraries(app)
+    for image in set(changed_images + [binary]):
+        subprocess.run(["ldid", "-S", str(image)], check=True)
     report = verify(app)
+    report["bundledLibraryDependencies"] = verify_libraries(app)
     (output / "verification.json").write_text(json.dumps(report, indent=2) + "\n")
     # Source notices travel with the experimental build.
     notices = app / "EmbeddedSourceNotices"

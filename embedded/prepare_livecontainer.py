@@ -12,6 +12,7 @@ import subprocess
 from pathlib import Path
 from certificate_validation import patch as patch_certificate_validation
 from jit.patch import patch as patch_jit
+from share_routing import patch as patch_share_routing
 
 LIVE_CONTAINER_COMMIT = "4dbe0f9a626de801184a42c0be8d2cb105058e3d"
 HOST_ID = "com.aault.livecontainer.sideinstaller"
@@ -124,7 +125,7 @@ def prepare(root):
     replace(settings, '"lc.settings.importCertFromBuiltinSideStoreDesc".loc',
             '"Compatible certificates sync automatically. For setup or repair, open the built-in SideInstaller → Set up LiveContainer."', 1)
     replace(settings, '"lc.settings.importCertFromBuiltinSideStore.certNotFounndErr".loc',
-            '"No compatible certificate is ready. Open the built-in SideInstaller → Set up LiveContainer → Check and fix signing. Use the account/team that signed this host."', 1)
+            '"No compatible certificate is ready. Open the built-in SideInstaller → Set up LiveContainer → Check signing. Use the account/team that signed this host."', 1)
     replace(settings, 'if store == .AltStore || store == .SideStore {',
             'if UserDefaults.sideStoreExist() || store == .AltStore || store == .SideStore {', 1)
     replace(settings, '            }\n        }\n        \n        let storeScheme : String',
@@ -190,6 +191,7 @@ def prepare(root):
         data["NSSupportsLiveActivities"] = True
         data["SIEmbeddedBuild"] = True
     edit_plist(root / "LiveContainer/Info.plist", host_plist)
+    patch_share_routing(root, replace, HOST_SCHEME)
     patch_certificate_validation(root, replace)
     patch_jit(root, replace)
     (root / ".sideinstaller-adapted").write_text(LIVE_CONTAINER_COMMIT + "\n")

@@ -2242,15 +2242,13 @@ final class Engine: ObservableObject {
             let handoff = try await self.exportEmbeddedCertificate()
             try Task.checkCancellation()
             if let issue = handoff.activationIssue {
-                return EmbeddedSigningCheck(needsRepair: true, message: issue)
+                return .activationIssue(issue, needsProfileUpdate: handoff.needsHostUpdate)
             }
             let (valid, error): (Bool, String?) = await withCheckedContinuation { continuation in
                 SIEmbeddedTestSigning { valid, error in continuation.resume(returning: (valid, error)) }
             }
             try Task.checkCancellation()
-            return EmbeddedSigningCheck(needsRepair: !valid, message: valid
-                ? "Signing test passed on this device. The certificate is installed and LiveContainer is ready for JIT-less apps. No separate certificate import is needed."
-                : "The certificate matches the host profile, but iOS rejected the signing test. Repair signing can renew the host profile using this same identity; this error alone does not prove a certificate mismatch. If repair still fails, copy these details when reporting it.\n\n" + (error ?? "No error details were returned."))
+            return .deviceResult(valid, error: error)
         }
     }
 
