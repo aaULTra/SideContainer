@@ -1,4 +1,4 @@
-name: Build BCD Wine startup repair
+name: Build BCD diagnostics and Wine repair
 on:
   push:
     branches: [fix/bcd-ntdsapi]
@@ -40,8 +40,8 @@ jobs:
           python3 repairs/bcd-runtime/package_runtime.py prepare base-artifact/BCD-0.1.580-NTDSAPI-repair.ipa --work runtime-build
           python3 repairs/bcd-runtime/macho_guard.py runtime-build/Madeira --header runtime-build/GuardImage.h --metadata runtime-build/GuardImage.json
           SDK=$(xcrun --sdk iphoneos --show-sdk-path)
-          xcrun --sdk iphoneos clang -arch arm64 -isysroot "$SDK" -miphoneos-version-min=18.0 -O2 -g \
-            -dynamiclib -I runtime-build -I repairs/bcd-runtime repairs/bcd-runtime/BCDStartupGuard.m \
+          xcrun --sdk iphoneos clang -arch arm64 -isysroot "$SDK" -miphoneos-version-min=18.0 -O2 -g -fobjc-arc \
+            -dynamiclib -I runtime-build -I repairs/bcd-runtime repairs/bcd-runtime/BCDStartupGuard.m repairs/bcd-runtime/DiagnosticsCore.m repairs/bcd-runtime/DiagnosticsUI.m repairs/bcd-runtime/PEImports.c \
             -framework Foundation -framework UIKit -install_name @rpath/BCDStartupGuard.dylib \
             -o runtime-build/BCDStartupGuard.dylib
           codesign --force --sign - runtime-build/BCDStartupGuard.dylib
@@ -50,7 +50,7 @@ jobs:
           python3 - <<'PY'
           from pathlib import Path
           import zipfile
-          with zipfile.ZipFile('runtime-out/BCD-Wine-repair-v2-source.zip','w',zipfile.ZIP_DEFLATED) as z:
+          with zipfile.ZipFile('runtime-out/BCD-Diagnostics-v3-source.zip','w',zipfile.ZIP_DEFLATED) as z:
               for root,prefix in [(Path('prior-source'),'ntdsapi-source'),(Path('repairs/bcd-runtime'),'runtime-source'),(Path('runtime-build'),'build-metadata')]:
                   for p in root.rglob('*'):
                       if p.is_file() and p.suffix not in ['.dylib'] and p.name!='Madeira':z.write(p,str(Path(prefix)/p.relative_to(root)))
@@ -60,7 +60,7 @@ jobs:
       - name: Upload Wine repair IPA
         uses: actions/upload-artifact@v4
         with:
-          name: BCD-0.1.580-Wine-repair-v2
+          name: BCD-0.1.580-Diagnostics-v3
           path: |
             runtime-out/*.ipa
             runtime-out/RuntimeRepair.json
@@ -70,6 +70,6 @@ jobs:
       - name: Upload complete repair source
         uses: actions/upload-artifact@v4
         with:
-          name: BCD-Wine-repair-v2-source
-          path: runtime-out/BCD-Wine-repair-v2-source.zip
+          name: BCD-Diagnostics-v3-source
+          path: runtime-out/BCD-Diagnostics-v3-source.zip
           if-no-files-found: error

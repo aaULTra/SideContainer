@@ -24,6 +24,7 @@ def package(ipa,dylib,out):
     assert MachO(dylib.read_bytes()).cpu==0x100000c,'The guard must target arm64 iOS'
     with zipfile.ZipFile(ipa) as src:
         assert lib not in src.namelist()
+        assert root+'arm64ec-windows/tbs-optin.dll' in src.namelist(), 'Expected existing Wine TBS module missing'
         info=plistlib.loads(src.read(root+'Info.plist'))
         assert info['CFBundleIdentifier']=='com.thebcd69.bcd' and str(info['CFBundleVersion'])=='580'
         before=src.read(binary);m=MachO(before)
@@ -33,14 +34,14 @@ def package(ipa,dylib,out):
         ghost=next(r for r in recs['rules'] if r['id']=='ghost-of-tsushima')
         assert ghost['version']==3
         assert not any(x.lstrip().startswith('env.MADEIRA_OPTIN_DLLS') for x in ghost['config'])
-        ghost['config'].append('env.MADEIRA_OPTIN_DLLS = evr,dxva2')
-        ghost['version']=4
-        ghost['notes'].append('Wine compatibility repair: enable EVR and its DXVA2 dependency for crs-video.exe. Other game settings are unchanged.')
-        recs['version']+=1
+        ghost['config'].append('env.MADEIRA_OPTIN_DLLS = evr,dxva2,tbs')
+        ghost['version']=5
+        ghost['notes'].append('Wine diagnostic repair: enable EVR, DXVA2 and the existing TBS module; copy a bounded diagnostic report from log export. TPM APIs remain incomplete in Wine.')
+        recs['version']+=2
         assert [r for r in recs['rules'] if r['id']!='ghost-of-tsushima']==[r for r in old_recs['rules'] if r['id']!='ghost-of-tsushima']
         updated_recs=(json.dumps(recs,ensure_ascii=False,indent=2)+'\n').encode()
         changed={binary:after,config:updated_recs}
-        target=out/'BCD-0.1.580-Wine-repair-v2.ipa'
+        target=out/'BCD-0.1.580-Diagnostics-v3.ipa'
         with zipfile.ZipFile(target,'w',compression=zipfile.ZIP_DEFLATED,compresslevel=6) as dst:
             for item in src.infolist():dst.writestr(copy.copy(item),changed.get(item.filename,src.read(item.filename)))
             dst.writestr(lib,dylib.read_bytes())
@@ -53,7 +54,7 @@ def package(ipa,dylib,out):
                 'bundle_id':info['CFBundleIdentifier'],'modified_entries':list(changed),'added_entry':lib,
                 'all_other_entries_unchanged':True,'original_executable_instructions_unchanged':True,
                 'ghost_recommendation_version':ghost['version'],'guard_timeout_seconds':10,
-                'guard_metadata':m.startup_metadata(),'device_test_pending':True}
+                'diagnostics_version':3,'copy_action':'Settings > Logs > Export BCD log > Copy diagnostic report','guard_metadata':m.startup_metadata(),'device_test_pending':True}
         (out/'RuntimeRepair.json').write_text(json.dumps(report,indent=2)+'\n')
         print(json.dumps(report,indent=2))
 

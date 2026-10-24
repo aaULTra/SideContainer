@@ -18,6 +18,7 @@
 #include <time.h>
 #include <unistd.h>
 #include "Readiness.h"
+#import "Diagnostics.h"
 #include "GuardImage.h"
 
 #ifndef BCD_GUARD_TIMEOUT
@@ -47,6 +48,12 @@ static void report_failure(NSString *message) {
                 UIViewController *view = window.rootViewController;
                 while (view.presentedViewController && !view.presentedViewController.isBeingDismissed) view = view.presentedViewController;
                 UIAlertController *alert = [UIAlertController alertControllerWithTitle:@"Wine could not start" message:message preferredStyle:UIAlertControllerStyleAlert];
+                [alert addAction:[UIAlertAction actionWithTitle:@"Copy diagnostic report" style:UIAlertActionStyleDefault handler:^(UIAlertAction *action) {
+                    dispatch_async(dispatch_get_global_queue(QOS_CLASS_UTILITY,0),^{
+                        NSString *report=BCDCreateCurrentDiagnosticReport(nil);
+                        dispatch_async(dispatch_get_main_queue(),^{ UIPasteboard.generalPasteboard.string=report; });
+                    });
+                }]];
                 [alert addAction:[UIAlertAction actionWithTitle:@"OK" style:UIAlertActionStyleDefault handler:nil]];
                 [view presentViewController:alert animated:YES completion:nil];
                 return;
@@ -74,7 +81,7 @@ static BOOL prepare_ghost(NSString **failure) {
     if (!program || [program.lastPathComponent caseInsensitiveCompare:@"GhostOfTsushima.exe"] != NSOrderedSame) return YES;
 #if !defined(BCD_GUARD_FIXTURE)
     NSString *farm = [NSBundle.mainBundle.bundlePath stringByAppendingPathComponent:@"arm64ec-windows"];
-    for (NSString *name in @[@"ntdsapi.dll", @"evr-optin.dll", @"dxva2-optin.dll"]) {
+    for (NSString *name in @[@"ntdsapi.dll", @"evr-optin.dll", @"dxva2-optin.dll", @"tbs-optin.dll"]) {
         if (![NSFileManager.defaultManager isReadableFileAtPath:[farm stringByAppendingPathComponent:name]]) {
             *failure = [NSString stringWithFormat:@"Ghost of Tsushima needs %@, but it is missing from this BCD installation. Import the complete Wine repair IPA into LiveContainer again.", name];
             return NO;
@@ -106,8 +113,8 @@ static BOOL prepare_ghost(NSString **failure) {
         if ([name hasSuffix:@".dll"]) name = [name substringToIndex:name.length-4];
         if (name.length) [names addObject:name];
     }
-    BOOL changed = ![names containsObject:@"evr"] || ![names containsObject:@"dxva2"];
-    [names addObject:@"evr"]; [names addObject:@"dxva2"];
+    BOOL changed = ![names containsObject:@"evr"] || ![names containsObject:@"dxva2"] || ![names containsObject:@"tbs"];
+    [names addObject:@"evr"]; [names addObject:@"dxva2"]; [names addObject:@"tbs"];
     NSString *merged = [names.array componentsJoinedByString:@","];
     if (path && changed) {
         NSString *backup = [path stringByAppendingString:@".before-wine-repair"];
@@ -115,13 +122,13 @@ static BOOL prepare_ghost(NSString **failure) {
             ![NSFileManager.defaultManager copyItemAtPath:path toPath:backup error:&error]) {
             *failure = @"Ghost's Wine settings could not be backed up, so the repair did not change them."; return NO;
         }
-        NSString *updated = [text stringByAppendingFormat:@"%@# BCD Wine repair: video-helper dependencies for this game.\n%@ = %@\n", [text hasSuffix:@"\n"] || !text.length ? @"" : @"\n", key, merged];
+        NSString *updated = [text stringByAppendingFormat:@"%@# BCD Wine repair: SDK/video-helper dependencies for this game.\n%@ = %@\n", [text hasSuffix:@"\n"] || !text.length ? @"" : @"\n", key, merged];
         if (![updated writeToFile:path atomically:YES encoding:NSUTF8StringEncoding error:&error]) {
             *failure = @"Ghost's Wine settings could not be saved. Check that the game configuration folder is writable before trying again."; return NO;
         }
     }
     setenv("MADEIRA_OPTIN_DLLS", merged.UTF8String, 1);
-    repair_log([NSString stringWithFormat:@"Ghost video dependencies enabled for this game: %@", merged]);
+    repair_log([NSString stringWithFormat:@"Ghost SDK/video dependencies enabled for this game: %@", merged]);
     return YES;
 }
 
@@ -132,6 +139,7 @@ __attribute__((noinline)) static int guarded_socketpair(int domain, int type, in
     /* BCD sets this before socketpair, although the client has not started.
      * Keep its UI from treating a ten-second server wait as a running game. */
     __atomic_store_n(client_running, 0, __ATOMIC_RELEASE);
+    BCDDiagnosticsBegin(getenv("MADEIRA_EXE"));
     double began = probe_now(NULL);
     BCDServerProbe probe={probe_running, probe_ready, probe_now, probe_pause, NULL};
     BCDServerResult result = bcd_wait_for_server(probe, BCD_GUARD_TIMEOUT);
@@ -139,6 +147,7 @@ __attribute__((noinline)) static int guarded_socketpair(int domain, int type, in
         NSString *reason = result == BCD_SERVER_STOPPED
             ? @"Wine's server stopped before startup completed. The Windows program was not launched. Check the preceding Wine server error in the log, then close BCD and reopen it."
             : @"Wine's server did not finish starting within 10 seconds. The Windows program was not launched. Check the preceding Wine server error in the log, then close BCD and reopen it.";
+        BCDDiagnosticsState(@"server_refused", @{@"reason":reason});
         report_failure(reason);
         if (pair) { pair[0]=-1; pair[1]=-1; }
         errno = result == BCD_SERVER_STOPPED ? EPIPE : ETIMEDOUT;
@@ -146,11 +155,15 @@ __attribute__((noinline)) static int guarded_socketpair(int domain, int type, in
     }
     @autoreleasepool {
         NSString *failure=nil;
-        if (!prepare_ghost(&failure)) { report_failure(failure); if (pair) { pair[0]=-1; pair[1]=-1; } errno=EIO; return -1; }
+        if (!prepare_ghost(&failure)) { BCDDiagnosticsState(@"preflight_refused", @{@"reason":failure}); report_failure(failure); if (pair) { pair[0]=-1; pair[1]=-1; } errno=EIO; return -1; }
         repair_log([NSString stringWithFormat:@"server VERIFIED ready before Wine connection (%.0f ms)", (probe_now(NULL)-began)*1000.0]);
     }
     __atomic_store_n(client_running, 1, __ATOMIC_RELEASE);
-    return original_socketpair(domain, type, protocol, pair);
+    int saved=original_socketpair(domain, type, protocol, pair);
+    int saved_errno=errno;
+    BCDDiagnosticsState(saved==0 ? @"server_ready_client_socket_created" : @"client_socket_failed", @{@"socketpair_result":@(saved), @"socketpair_errno":@(saved==0 ? 0 : saved_errno)});
+    errno=saved_errno;
+    return saved;
 }
 
 static BOOL matches_image(const struct mach_header *header) {
@@ -203,5 +216,5 @@ static void image_added(const struct mach_header *header, intptr_t slide) {
 
 int bcd_guard_installed(void) { return installed; }
 __attribute__((constructor)) static void install_guard(void) {
-    @autoreleasepool { _dyld_register_func_for_add_image(image_added); }
+    @autoreleasepool { BCDInstallDiagnosticsUI(); _dyld_register_func_for_add_image(image_added); }
 }

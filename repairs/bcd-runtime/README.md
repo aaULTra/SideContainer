@@ -1,47 +1,13 @@
-# BCD 0.1.580 Wine repair v2
+# BCD 580 diagnostics v3 and Wine startup repair
 
-This extends the NTDSAPI repair with Wine startup checks and Ghost of Tsushima's
-video-helper dependencies. It preserves the original executable instructions,
-renderer, Wine libraries, JIT implementation, signing identity and bundle IDs.
+Import `BCD-0.1.580-Diagnostics-v3.ipa` into the existing BCD entry in LiveContainer as an update. The BCD bundle identifier is unchanged; this is a guest IPA, with no new host app or App ID required. Preserve the existing LC installation and guest data.
 
-The main executable receives one additional library load command and one
-same-length log-string correction: the old two-second wait now reports that
-the wait ended rather than claiming that Wine's server is ready. Its original
-code sections and section layout are checked byte for byte.
+Reproduce the SDK error, then open BCD Settings → Logs → Export BCD's log. In the share sheet, select **Copy diagnostic report** (scroll the actions list if needed) and paste the report into the conversation. A Wine startup failure alert also offers the copy action. Log export's original sharing actions remain available. No report is uploaded automatically.
 
-`BCDStartupGuard.dylib` changes one data import slot for `socketpair`. It only
-guards callers within the original `wine_process_start` function, identified
-by the exact pinned image's UUID, instruction fingerprints and function
-boundaries. Other socketpairs are forwarded immediately. It requires the
-Wine server to be both running and ready before making the client connection,
-waits at most ten additional seconds for slow initialization, and refuses a
-stopped or timed-out server with a clear log and an iOS alert. It does not
-create the client sockets or inject a client on those failures.
-During this check it keeps BCD's client-running flag false, so the library
-does not mistake a slow server initialization for a game that has started.
+The bounded report records the last guarded launch, actual loader/SDK/fatal log evidence, recent log context, bundled module presence, and the game-local PsPcSdk.dll SHA256 and normal/delayed imports. A matching persisted session marker isolates that launch; fallback log evidence is explicitly marked unverified. The report redacts common email, IP, host-container/user paths, URLs and credential-labelled lines. This is a best-effort filter: review copied text before sharing. It reads logs and the game-local SDK only, not pairing records or Keychain. No per-frame diagnostic polling is installed.
 
-For `GhostOfTsushima.exe` only, it checks that NTDSAPI, EVR and DXVA2 are in the
-bundle, then merges `evr,dxva2` into the game's effective opt-in DLL setting.
-Other settings are preserved; before a config change it makes a one-time
-`<game>.cfg.before-wine-repair` backup. Repeated starts do not append duplicate
-settings. If no per-game config is supplied, only the session environment is
-updated. A matching baked recommended profile is also included.
+The existing readiness guard still prevents a Wine client launch if the server stopped or never became ready. Ghost's effective opt-in list now includes `evr,dxva2,tbs`, preserving existing opt-ins and making a one-time configuration backup. This enables the TBS module already bundled by BCD. It does not implement a TPM: several Sony SDK imports in Wine remain stubs or return an unsupported error. The report distinguishes imported functions from logged calls. Neither DLL presence nor module mapping proves successful SDK initialization or full game compatibility.
 
-Import `BCD-0.1.580-Wine-repair-v2.ipa` into LiveContainer and replace the existing
-BCD entry. Keep its existing data container. No new Apple App ID is needed.
-No reset of the game's other settings is required.
+Packaging validates the immutable NTDSAPI-repaired base, preserves native instruction sections, bundle ID, graphics libraries and every unrelated archive entry, and updates only Ghost's recommendation and the injected diagnostic guard. The proprietary Sony SDK and user logs are not included in this source bundle.
 
-Validation includes pure readiness-state tests, native macOS dyld integration
-tests of the actual import-slot hook, success/delay/failure/timeout cases,
-unrelated calls, other-game settings, LiveContainer's UUID adjustment, a
-mismatched image, config backup/idempotency, and full IPA comparisons. These
-tests do not run iOS Metal, JIT, Wine or the game itself. On-device testing is
-still required. Look for `[BCD-WineStartup] Readiness guard installed` and
-`server VERIFIED ready` in the device log.
-
-The main image is the original BCD 0.1.580, except the two bounded metadata/
-log changes described above. Original BCD source and notices:
-https://github.com/thebcd69/bcd-games/releases/tag/v0.1.580
-The accompanying source archive includes the prior NTDSAPI source and all
-new runtime-guard sources, tests and packaging scripts. The new repair code
-is provided under GPL-3.0-or-later, compatible with BCD's distribution.
+Validation: portable PE32/PE32+ parser cases (normal/delay/ordinal/truncated), native macOS diagnostic/session/redaction/size/path tests, readiness tests and actual dyld import-hook fixtures. CI also compiles for iOS arm64 and verifies archive preservation. These tests do not execute iPadOS, Wine, the Sony SDK or Ghost of Tsushima; device testing remains necessary.
