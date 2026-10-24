@@ -177,7 +177,12 @@ private struct EmbeddedSigningSetupView: View {
                 Section("LiveContainer signing") {
                     Label(working ? "Checking…" : (passed ? "Ready" : "Signing setup"),
                           systemImage: passed ? "checkmark.circle.fill" : "checkmark.shield")
-                    Text(message).textSelection(.enabled)
+                    Text(message.components(separatedBy: "\n\n").first ?? message).textSelection(.enabled)
+                    if let separator = message.range(of: "\n\n") {
+                        DisclosureGroup("Details") {
+                            Text(String(message[separator.upperBound...])).textSelection(.enabled)
+                        }
+                    }
                     Button("Check signing") { runCheck() }
                         .disabled(working || engine.isRunning || AppRefreshService.shared.isRefreshing)
                     if !working && !passed {
