@@ -7,3 +7,6 @@ NSDictionary *BCDSDKImports(NSURL *url);
 NSURL *BCDDiagnosticDocuments(void);
 NSString *BCDCreateCurrentDiagnosticReport(NSArray<NSURL *> *exportedLogs);
 void BCDInstallDiagnosticsUI(void);
+
+void *BCDJournalWriteHook(void *original);
+void BCDJournalBegin(void);

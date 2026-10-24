@@ -139,6 +139,11 @@ __attribute__((noinline)) static int guarded_socketpair(int domain, int type, in
     /* BCD sets this before socketpair, although the client has not started.
      * Keep its UI from treating a ten-second server wait as a running game. */
     __atomic_store_n(client_running, 0, __ATOMIC_RELEASE);
+    BCDJournalBegin();
+    /* Enable exception records and parameters, without noisy +all tracing. */
+    const char *debug=getenv("WINEDEBUG");
+    NSString *trace=debug ? [[NSString stringWithUTF8String:debug] stringByAppendingString:@",+seh"] : @"+seh";
+    setenv("WINEDEBUG",trace.UTF8String,1);
     BCDDiagnosticsBegin(getenv("MADEIRA_EXE"));
     double began = probe_now(NULL);
     BCDServerProbe probe={probe_running, probe_ready, probe_now, probe_pause, NULL};
@@ -210,6 +215,22 @@ static void image_added(const struct mach_header *header, intptr_t slide) {
     __atomic_store_n(slot, (uintptr_t)guarded_socketpair, __ATOMIC_RELEASE);
     kr=vm_protect(mach_task_self(), page, (vm_size_t)getpagesize(), FALSE, info.protection);
     if (kr!=KERN_SUCCESS) repair_log(@"Warning: import page protection restore failed.");
+    #if !defined(BCD_GUARD_FIXTURE)
+    if (BCD_WRITE_SLOT) {
+        uintptr_t *writeSlot=(void *)(base+BCD_WRITE_SLOT);
+        vm_address_t wp=(vm_address_t)writeSlot & ~((vm_address_t)getpagesize()-1);
+        vm_address_t wr=wp; vm_size_t ws=0; vm_region_basic_info_data_64_t wi={0};
+        mach_msg_type_number_t wc=VM_REGION_BASIC_INFO_COUNT_64; mach_port_t wo=MACH_PORT_NULL;
+        kern_return_t wk=vm_region_64(mach_task_self(),&wr,&ws,VM_REGION_BASIC_INFO_64,(vm_region_info_t)&wi,&wc,&wo);
+        if(wo!=MACH_PORT_NULL)mach_port_deallocate(mach_task_self(),wo);
+        void *writeOriginal=dlsym(RTLD_NEXT,"write");
+        if(wk==KERN_SUCCESS && writeOriginal && vm_protect(mach_task_self(),wp,getpagesize(),FALSE,wi.protection|VM_PROT_WRITE|VM_PROT_COPY)==KERN_SUCCESS) {
+            __atomic_store_n(writeSlot,(uintptr_t)BCDJournalWriteHook(writeOriginal),__ATOMIC_RELEASE);
+            vm_protect(mach_task_self(),wp,getpagesize(),FALSE,wi.protection);
+            repair_log(@"v4 synchronous exception journal installed; checked memory reads only.");
+        } else repair_log(@"v4 journal write hook unavailable; report will use streamed log fallback.");
+    }
+#endif
     installed=1;
     repair_log(@"Readiness guard installed for this BCD build; Wine client startup only.");
 }

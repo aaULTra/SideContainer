@@ -26,6 +26,11 @@ int main(void) { @autoreleasepool {
     NSMutableString *huge=NSMutableString.new;for(int i=0;i<3000;i++)[huge appendFormat:@"FATAL: %d %@\n",i,[@"x" stringByPaddingToLength:1000 withString:@"x" startingAtIndex:0]];
     [huge writeToURL:log atomically:YES encoding:NSUTF8StringEncoding error:nil];
     report=BCDDiagnosticReport(root,root,session,@[log]);assert([report lengthOfBytesUsingEncoding:NSUTF8StringEncoding]<=24000);
+    NSMutableString *noisy=[NSMutableString stringWithString:@"[BCD-Diagnostics] session=test-1\n0024: [exc] code=e06d7363\n0024: [fast-fail] captured-game-failure\n"];
+    for(int i=0;i<40000;i++)[noisy appendString:@"[xp] telemetry telemetry telemetry telemetry telemetry telemetry telemetry\n"];
+    [noisy writeToURL:log atomically:YES encoding:NSUTF8StringEncoding error:nil];
+    report=BCDDiagnosticReport(root,root,session,@[log]);
+    assert([report containsString:@"captured-game-failure"] && [report containsString:@"matches recorded session"]);
     NSDictionary *escape=@{@"executable":@"C:\\..\\Ghost Game\\GhostOfTsushima.exe"};
     assert([BCDDiagnosticReport(root,root,escape,@[]) containsString:@"SDK scan: PsPcSdk.dll not found"]);
     [fm removeItemAtURL:root error:nil];puts("Diagnostic SDK scan, session isolation, redaction, path traversal and report size tests passed");

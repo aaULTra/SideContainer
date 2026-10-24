@@ -19,7 +19,7 @@ void BCDDiagnosticsBegin(const char *executable) {
     @synchronized(NSProcessInfo.class) {
         NSString *exe=executable ? [NSString stringWithUTF8String:executable] : @"";
         activeSession=[@{@"id":NSUUID.UUID.UUIDString, @"started":[NSISO8601DateFormatter.new stringFromDate:NSDate.date],
-            @"executable":exe ?: @"", @"phase":@"server_wait", @"repair":@3} mutableCopy];
+            @"executable":exe ?: @"", @"phase":@"server_wait", @"repair":@4} mutableCopy];
         saveSession();
         fprintf(stderr,"%s%s\n",marker.UTF8String,[activeSession[@"id"] UTF8String]);
     }
@@ -85,24 +85,41 @@ static NSURL *sdkURL(NSURL *documents,NSString *executable) {
     NSString *safeRoot=[root.URLByResolvingSymlinksInPath.path stringByAppendingString:@"/"];
     return [sdk.URLByResolvingSymlinksInPath.path hasPrefix:safeRoot] ? sdk : nil;
 }
+/* Stream the full log. Keep launch markers, failure evidence and a short tail;
+ * shader/telemetry volume cannot push a crash out of a 2 MB tail window. */
 static NSString *tail(NSURL *url) {
-    NSFileHandle *file=[NSFileHandle fileHandleForReadingFromURL:url error:nil]; if (!file) return @"";
-    @try {
-        unsigned long long length=[file seekToEndOfFile];
-        [file seekToFileOffset:length>2*1024*1024 ? length-2*1024*1024 : 0];
-        NSData *data=[file readDataToEndOfFile];
-        NSString *text=[[NSString alloc] initWithData:data encoding:NSUTF8StringEncoding];
-        if (!text) text=[[NSString alloc] initWithData:data encoding:NSISOLatin1StringEncoding];
-        return text ?: @"";
-    } @catch(NSException *exception) { return @"[log could not be read]"; }
-    @finally { [file closeFile]; }
+    NSInputStream *stream=[NSInputStream inputStreamWithURL:url];[stream open];
+    NSMutableString *partial=NSMutableString.new;
+    NSMutableArray *events=NSMutableArray.new,*recent=NSMutableArray.new;
+    uint8_t buffer[65536]; NSInteger n; NSUInteger total=0;
+    while((n=[stream read:buffer maxLength:sizeof(buffer)])>0) {
+        total+=(NSUInteger)n;
+        NSString *chunk=[[NSString alloc]initWithBytes:buffer length:n encoding:NSISOLatin1StringEncoding];
+        [partial appendString:chunk ?: @""];
+        NSRange end;
+        while((end=[partial rangeOfString:@"\n"]).location!=NSNotFound) {
+            NSString *line=[partial substringToIndex:end.location];
+            [partial deleteCharactersInRange:NSMakeRange(0,end.location+1)];
+            if([line containsString:marker]) {[events removeAllObjects];[recent removeAllObjects];}
+            NSString *low=line.lowercaseString;
+            NSArray *keys=@[@"[bcd-",@"fatal:",@"[exc]",@"[exc-disp]",@"info[",@"[fast-fail]",@"[term-stack]",@"[unwind] term",@"[exit-report]",@"[cage]",@"gaps-exhausted",@"unhandled",@"not found",@"unimplemented function",@"unimplemented stub",@"[lc-winesocket]",@"[autotune]",@"[win-name]",@"[init-peb]"];
+            BOOL keep=NO;for(NSString *key in keys)if([low containsString:key]){keep=YES;break;}
+            if(keep){[events addObject:line];if(events.count>250)[events removeObjectAtIndex:0];}
+            [recent addObject:line];if(recent.count>15)[recent removeObjectAtIndex:0];
+        }
+        if(partial.length>16384)[partial deleteCharactersInRange:NSMakeRange(0,partial.length-8192)];
+        if(total>256*1024*1024){[events addObject:@"[scan limit reached: 256 MB; use failure journal]"];break;}
+    }
+    [stream close];
+    if(partial.length)[recent addObject:partial];
+    [events addObjectsFromArray:recent];return [events componentsJoinedByString:@"\n"];
 }
 NSString *BCDDiagnosticReport(NSURL *documents,NSURL *bundle,NSDictionary *session,NSArray<NSURL *> *logs) {
-    NSMutableString *report=[NSMutableString stringWithString:@"BCD diagnostic report v3\n"];
+    NSMutableString *report=[NSMutableString stringWithString:@"BCD diagnostic report v4\n"];
     NSString *exe=session[@"executable"] ?: @"";
     NSString *target=[[exe stringByReplacingOccurrencesOfString:@"\\" withString:@"/"] lastPathComponent];
     char machine[128]={0}; size_t len=sizeof(machine); sysctlbyname("hw.machine",machine,&len,NULL,0);
-    [report appendFormat:@"Build: 0.1.580; repair: 3\nDevice: %s; %@\nLast launch: %@\nTarget: %@\nSession: %@\nStartup phase: %@\n",machine,NSProcessInfo.processInfo.operatingSystemVersionString,session[@"started"] ?: @"unknown",target.length ? target : @"unknown",session[@"id"] ?: @"unknown",session[@"phase"] ?: @"no recorded launch"];
+    [report appendFormat:@"Build: 0.1.580; repair: 4\nDevice: %s; %@\nLast launch: %@\nTarget: %@\nSession: %@\nStartup phase: %@\n",machine,NSProcessInfo.processInfo.operatingSystemVersionString,session[@"started"] ?: @"unknown",target.length ? target : @"unknown",session[@"id"] ?: @"unknown",session[@"phase"] ?: @"no recorded launch"];
     if (session[@"reason"]) [report appendFormat:@"Startup detail: %@\n",session[@"reason"]];
     [report appendString:@"Bundled Wine modules:\n"];
     for (NSString *module in @[@"ntdsapi.dll",@"tbs-optin.dll",@"evr-optin.dll",@"dxva2-optin.dll"]) {
@@ -121,12 +138,20 @@ NSString *BCDDiagnosticReport(NSURL *documents,NSURL *bundle,NSDictionary *sessi
         }
         [report appendString:@"Known support gaps in the bundled Wine source (imports alone do not prove calls): DsGetSpnA returns ERROR_CALL_NOT_IMPLEMENTED; DsFreeSpnArrayA is a generated stub. TBS has no TPM backend: Tbsi_Context_Create/Tbsi_GetDeviceInfo return TBS_E_TPM_NOT_FOUND; Tbsi_Get_TCG_Log/Tbsip_Context_Close are generated stubs.\n"];
     }
+    NSURL *journal=[documents URLByAppendingPathComponent:@"BCD-Diagnostics/failure-journal.txt"];
+    NSString *journalText=[NSString stringWithContentsOfURL:journal encoding:NSUTF8StringEncoding error:nil];
+    if(journalText.length) {
+        [report appendString:@"\nPreserved exception journal (game and child process IDs are separate):\n"];
+        NSArray *journalLines=[journalText componentsSeparatedByString:@"\n"];
+        for(NSString *line in journalLines)if([line containsString:@"[BCD-CppException]"])[report appendFormat:@"%@\n",line];
+    }
     [report appendString:@"\nObserved log evidence (bounded; no automatic upload):\n"];
     NSString *sessionMarker=session[@"id"] ? [marker stringByAppendingString:session[@"id"]] : nil;
     NSMutableArray *matching=NSMutableArray.new;
     if (sessionMarker) for (NSURL *url in logs) if ([tail(url) containsString:sessionMarker]) [matching addObject:url];
     if (matching.count) logs=matching;
     else if (logs.count>1) logs=@[logs.firstObject];
+    if(journalText.length) logs=[@[journal] arrayByAddingObjectsFromArray:logs];
     unsigned used=0;
     for (NSURL *url in logs) {
         if (used++>=3) break;
@@ -144,8 +169,8 @@ NSString *BCDDiagnosticReport(NSURL *documents,NSURL *bundle,NSDictionary *sessi
         NSMutableOrderedSet *evidence=NSMutableOrderedSet.new;
         for (NSUInteger i=0;i<lines.count;i++) {
             NSString *line=lines[i]; NSString *low=line.lowercaseString;
-            BOOL relevant=[low containsString:@"[dll-missing]"] || [low containsString:@"err:module:import_dll"] || [low containsString:@"unimplemented function"] || [low containsString:@"unimplemented stub"] || [low containsString:@"fatal:"] || [low containsString:@"unhandled exception"] || [low containsString:@"[bcd-winestartup]"] || [low containsString:@"[bcd-diagnostics]"] || ([low containsString:@"[win-name]"] && ([low containsString:@"sdk"] || [low containsString:@"error"])) || ([low containsString:@"[lc-winesocket]"] && ([low containsString:@"retry"] || [low containsString:@"errno=1"]));
-            if (relevant) { if (evidence.count>=30) [evidence removeObjectAtIndex:0]; [evidence addObject:line]; }
+            BOOL relevant=[low containsString:@"[exc]"] || [low containsString:@"info["] || [low containsString:@"[exc-disp]"] || [low containsString:@"[fast-fail]"] || [low containsString:@"[term-stack]"] || [low containsString:@"[unwind] term"] || [low containsString:@"[exit-report]"] || [low containsString:@"[cage]"] || [low containsString:@"[bcd-cppexception]"] || [low containsString:@"[dll-missing]"] || [low containsString:@"err:module:import_dll"] || [low containsString:@"unimplemented function"] || [low containsString:@"unimplemented stub"] || [low containsString:@"fatal:"] || [low containsString:@"unhandled exception"] || [low containsString:@"[bcd-winestartup]"] || [low containsString:@"[bcd-diagnostics]"] || ([low containsString:@"[win-name]"] && ([low containsString:@"sdk"] || [low containsString:@"error"])) || ([low containsString:@"[lc-winesocket]"] && ([low containsString:@"retry"] || [low containsString:@"errno=1"]));
+            if (relevant) { if (evidence.count>=90) [evidence removeObjectAtIndex:0]; [evidence addObject:line]; }
         }
         if (!evidence.count) [report appendString:@"No selected loader/SDK/fatal line in this log window.\n"];
         for (NSString *line in evidence) [report appendFormat:@"%@\n",line.length>500 ? [line substringToIndex:500] : line];
@@ -155,6 +180,7 @@ NSString *BCDDiagnosticReport(NSURL *documents,NSURL *bundle,NSDictionary *sessi
         }
     }
     if (!logs.count) [report appendString:@"No log files available. Reproduce the error, then export BCD's log.\n"];
+    [report appendString:@"\nInterpretation: a C++ throw can be handled normally. Correlate its process/thread and stack with the final fast-fail. 0xc0000409 alone does not identify the root cause. Unavailable type/message means capture was incomplete, not SDK success.\n"];
     report=[BCDScrubDiagnostic(report) mutableCopy];
     // Bound pasted text by UTF-8 bytes, preserving the report prefix and evidence.
     while ([report lengthOfBytesUsingEncoding:NSUTF8StringEncoding]>23900 && report.length>100) [report deleteCharactersInRange:NSMakeRange(report.length-100,100)];
