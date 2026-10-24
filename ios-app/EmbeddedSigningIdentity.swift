@@ -77,7 +77,7 @@ enum EmbeddedSigningIdentity {
         let expired = (host.profile["ExpirationDate"] as? Date).map { $0 <= Date() } ?? true
         let result = permitted
             ? "The shared certificate is authorised by the installed host profile."
-            : "CERTIFICATE MISMATCH: the installed host profile does not authorise SideInstaller's certificate. Open Set up LiveContainer → Repair signing and choose this build's original combined IPA."
+            : "The installed profile does not include this certificate. Open Set up LiveContainer → Update signing profile."
         return "\(result)\nHost team: \(host.team)\nCertificate SHA-256: \(fingerprint(certificate))\nHost profile: \(expired ? "expired or unreadable expiry" : "within its expiry date"). Revocation status is a separate online check."
     }
 }

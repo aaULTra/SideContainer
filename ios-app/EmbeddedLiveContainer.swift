@@ -2,17 +2,14 @@
 import Foundation
 import Security
 import SwiftUI
+import UIKit
 import Darwin
 import UniformTypeIdentifiers
 
 struct EmbeddedCertificateHandoff {
     let report: String
     let activationIssue: String?
-}
-
-struct EmbeddedSigningCheck {
-    let needsRepair: Bool
-    let message: String
+    let needsHostUpdate: Bool
 }
 
 /// UI and LiveProcess have different Engine singletons. An OS-held lock also
@@ -109,6 +106,10 @@ final class SIEmbeddedBridge: NSObject {
             throw EngineError.message("SideInstaller could not export its signing certificate.")
         }
         let report = try EmbeddedSigningIdentity.report(p12: certificate, password: password, team: signingTeam)
+        let host = try EmbeddedSigningIdentity.host()
+        let leaf = try EmbeddedSigningIdentity.certificate(p12: certificate, password: password)
+        let needsHostUpdate = !EmbeddedSigningIdentity.permits(leaf, profile: host.profile)
+            || ((host.profile["ExpirationDate"] as? Date).map { $0 <= Date() } ?? true)
         for (account, data) in [("signingCertificate", certificate),
                                 ("signingCertificatePassword", Data(password.utf8))] {
             let query: [String: Any] = [
@@ -134,7 +135,7 @@ final class SIEmbeddedBridge: NSObject {
         // never replace LC's active identity with one the installed profile rejects.
         let issue = SIEmbeddedActivateCertificate(certificate, password)
         return EmbeddedCertificateHandoff(report: (issue ?? "Certificate installed in LiveContainer. No separate import is needed.") + "\n\n" + report,
-                                          activationIssue: issue)
+                                          activationIssue: issue, needsHostUpdate: needsHostUpdate)
     }
 }
 
@@ -163,31 +164,39 @@ private struct EmbeddedSigningSetupView: View {
     @State private var operation: Task<Void, Never>?
     @State private var working = false
     @State private var shownTwoFactor: TwoFactorPhase?
-    @State private var checked = false
+    @State private var passed = false
     @State private var needsRepair = false
     @State private var hasRepairIPA = false
     @State private var pickingIPA = false
     @State private var confirmRepair = false
-    @State private var message = "Connect LocalDevVPN, then check signing. SideInstaller will sign in, check this LiveContainer's certificate, activate it when compatible, and run the signing test."
+    @State private var message = "Connect LocalDevVPN, then check signing. The matching certificate is shared automatically; no separate import is needed."
 
     var body: some View {
         NavigationStack {
             Form {
                 Section("LiveContainer signing") {
-                    Label(working ? "Checking…" : (checked && !needsRepair ? "Signing test passed" : "Setup and repair"),
-                          systemImage: checked && !needsRepair ? "checkmark.circle.fill" : "checkmark.shield")
-                    Text(message).textSelection(.enabled)
-                    Button("Check and fix signing") { runCheck() }
+                    Label(working ? "Checking…" : (passed ? "Ready" : "Signing setup"),
+                          systemImage: passed ? "checkmark.circle.fill" : "checkmark.shield")
+                    Text(message.components(separatedBy: "\n\n").first ?? message).textSelection(.enabled)
+                    if let separator = message.range(of: "\n\n") {
+                        DisclosureGroup("Details") {
+                            Text(String(message[separator.upperBound...])).textSelection(.enabled)
+                        }
+                    }
+                    Button("Check signing") { runCheck() }
                         .disabled(working || engine.isRunning || AppRefreshService.shared.isRefreshing)
+                    if !working && !passed {
+                        Button("Copy details") { UIPasteboard.general.string = message }
+                    }
                     if working { ProgressView() }
                 }
                 if needsRepair {
-                    Section("Repair this installation") {
-                        Text("Re-signs this LiveContainer in place with SideInstaller's certificate. Keep the same Apple account/team. Your apps and data stay in the existing installation.")
-                        Label(hasRepairIPA ? "Matching repair IPA is ready" : "This build's original combined IPA is needed",
-                              systemImage: hasRepairIPA ? "checkmark.circle" : "doc.badge.plus")
-                        Button("Choose original combined IPA…") { pickingIPA = true }.disabled(working)
-                        Button("Repair signing") { confirmRepair = true }
+                    Section("Update signing profile") {
+                        Text("The installed profile needs this certificate. Update the same app using the same Apple account; existing apps and data stay in place.")
+                        if !hasRepairIPA {
+                            Button("Choose this app’s IPA…") { pickingIPA = true }.disabled(working)
+                        }
+                        Button("Update signing profile") { confirmRepair = true }
                             .disabled(working || !hasRepairIPA || engine.isRunning || AppRefreshService.shared.isRefreshing)
                     }
                 }
@@ -220,21 +229,22 @@ private struct EmbeddedSigningSetupView: View {
                         await engine.importCustomIPA(from: url)
                         if let error = engine.lastError { throw EngineError.message(error) }
                         updateRepairIPA()
-                        message = "Repair IPA ready. Tap Repair signing to continue."
+                        message = "IPA ready. Tap Update signing profile to continue."
                     }
                 case .failure(let error): message = error.localizedDescription
                 }
             }
-            .confirmationDialog("Repair LiveContainer signing?", isPresented: $confirmRepair, titleVisibility: .visible) {
-                Button("Repair signing") {
+            .confirmationDialog("Update this app’s signing profile?", isPresented: $confirmRepair, titleVisibility: .visible) {
+                Button("Update signing profile") {
                     start {
                         try await engine.repairEmbeddedHostSigning()
-                        checked = false
-                        message = "Host replacement reported completion. Fully close and reopen LiveContainer, then return here and tap Check and fix signing. No manual certificate import is needed."
+                        passed = false
+                        needsRepair = false
+                        message = "Update completed. Reopen LiveContainer, then tap Check signing to run the device test."
                     }
                 }
             } message: {
-                Text("This replaces the running app with the same build, bundle ID and team, and may close it before confirmation. Back up important guest data first. Reopen afterwards to finish the signing test.")
+                Text("This updates the same app and may close it. Reopen afterwards to finish the signing test.")
             }
         }
     }
@@ -242,11 +252,12 @@ private struct EmbeddedSigningSetupView: View {
     private func updateRepairIPA() { hasRepairIPA = (try? engine.embeddedHostRepairIPA()) != nil }
 
     private func runCheck() {
-        checked = false
+        passed = false
+        needsRepair = false
         start {
             let result = try await engine.checkEmbeddedHostSigning()
             needsRepair = result.needsRepair
-            checked = true
+            passed = result.passed
             message = result.message
             updateRepairIPA()
         }
@@ -258,7 +269,7 @@ private struct EmbeddedSigningSetupView: View {
         operation = Task { @MainActor in
             defer { working = false; operation = nil }
             do { try Task.checkCancellation(); try await action() }
-            catch { checked = false; message = AppRefreshService.text(for: error) }
+            catch { passed = false; needsRepair = false; message = AppRefreshService.text(for: error) }
         }
     }
 }

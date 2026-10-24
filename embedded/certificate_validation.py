@@ -2,21 +2,26 @@
 
 def patch(root, replace):
     signer = root / "ZSign/zsign.mm"
-    replace(signer, '    // Extract OCSP URL from cert', '''    // Public metadata is available even when the online revocation check fails.
-    NSString *organizationalUnitName = nil;
-    X509_NAME *subject = X509_get_subject_name(cert);
-    int index = X509_NAME_get_index_by_NID(subject, NID_organizationalUnitName, -1);
-    if (index >= 0) {
-        ASN1_STRING *value = X509_NAME_ENTRY_get_data(X509_NAME_get_entry(subject, index));
-        organizationalUnitName = [[NSString alloc] initWithBytes:ASN1_STRING_get0_data(value)
-            length:ASN1_STRING_length(value) encoding:NSUTF8StringEncoding];
-    }
-    struct tm expiry = {};
-    NSDate *expirationDate = nil;
-    if (ASN1_TIME_to_tm(X509_get0_notAfter(cert), &expiry) == 1) {
-        expirationDate = [NSDate dateWithTimeIntervalSince1970:timegm(&expiry)];
-    }
+    from pathlib import Path
+    import shutil
+    shutil.copyfile(Path(__file__).with_name('CertificateMetadata.mm.inc'), root / 'ZSign/SICertificateMetadata.inc')
+    replace(signer, '#include "zsigner.h"', '#include "zsigner.h"\n#include "SICertificateMetadata.inc"', 1)
+    replace(signer, '    // Extract OCSP URL from cert', '''    NSDictionary *metadata = si_certificate_metadata(cert);
+    NSString *organizationalUnitName = metadata[@"team"];
+    NSDate *expirationDate = metadata[@"expiresAt"];
     // Extract OCSP URL from cert''', 1)
+    replace(signer, '    NSString* teamId = [NSString stringWithUTF8String:zSignAsset.m_strTeamId.c_str()];\n    return teamId;',
+            '    return si_certificate_metadata((X509*)zSignAsset.m_x509Cert)[@"team"];', 1)
+    replace(signer, '@implementation ZSigner', '''@implementation ZSigner
++ (NSDictionary *)certificateInfoWithCert:(NSData *)data pass:(NSString *)password {
+    if (!data.length || !password) return nil;
+    ZSignAsset asset;
+    if (!asset.InitSimple((const char *)data.bytes, (int)data.length, nil, 0, std::string(password.UTF8String))) return nil;
+    return si_certificate_metadata((X509 *)asset.m_x509Cert);
+}
+''', 1)
+    replace(root / 'ZSign/zsigner.h', '@interface ZSigner : NSObject',
+            '@interface ZSigner : NSObject\n+ (NSDictionary *)certificateInfoWithCert:(NSData *)data pass:(NSString *)password;', 1)
     old_start = '            ASN1_TIME *expirationDateAsn1 = X509_get_notAfter(cert);'
     old_end = '            formatter.locale = NSLocale.currentLocale;\n            NSDate *expirationDate = [formatter dateFromString:fullDateString];'
     source = signer.read_text()
@@ -94,12 +99,23 @@ def patch(root, replace):
             '        }', 1)
     utils = root / "LiveContainerSwiftUI/Utilities/LCUtils.m"
 
+    replace(utils, '+ (NSString*)getCertTeamIdWithKeyData:', '''+ (NSDictionary *)embeddedCertificateMetadata {
+    NSError *error = nil;
+    [self loadStoreFrameworksWithError2:&error];
+    if (error) return nil;
+    NSData *data = self.certificateData;
+    NSString *password = LCSharedUtils.certificatePassword;
+    if (!data.length || !password) return nil;
+    return [NSClassFromString(@"ZSigner") certificateInfoWithCert:data pass:password];
+}
+
++ (NSString*)getCertTeamIdWithKeyData:''', 1)
     # One host API serves both the built-in setup screen and manual LC import.
     fragment = (__import__('pathlib').Path(__file__).parent / 'SigningSetup.m.inc').read_text()
     replace(utils, '@implementation LCUtils', '@implementation LCUtils\n' + fragment, 1)
     header = root / 'LiveContainerSwiftUI/Utilities/LCUtils.h'
     replace(header, '@interface LCUtils : NSObject', '''@interface LCUtils : NSObject
-+ (NSString * _Nullable)embeddedCertificateError:(NSData *)p12 password:(NSString *)password hostBundle:(NSBundle *)host;
++ (NSDictionary * _Nullable)embeddedCertificateMetadata;\n+ (NSString * _Nullable)embeddedCertificateError:(NSData *)p12 password:(NSString *)password hostBundle:(NSBundle *)host;
 + (NSString * _Nullable)embeddedActivateCertificate:(NSData *)p12 password:(NSString *)password hostBundle:(NSBundle *)host;
 + (void)embeddedValidateJITLessWithHostBundle:(NSBundle *)host completion:(void (^)(BOOL, NSError * _Nullable))completion;
 ''', 1)
@@ -117,7 +133,7 @@ def patch(root, replace):
         }''', 1)
     replace(diagnose, 'Text("SideStore")', 'Text("SideInstaller")', 1)
     replace(diagnose, '"lc.jitlessSetup.error.testLibLoadFailed %@ %@ %@".localizeWithFormat(storeName, storeName, storeName) + "\\n" + (error?.localizedDescription ?? "")',
-            '"Signing test failed. Open the built-in SideInstaller → Set up LiveContainer to check and repair signing.\\n\\n" + (error?.localizedDescription ?? "No error details were returned.")', 1)
+            '"Signing test failed. Open the built-in SideInstaller → Set up LiveContainer → Check signing for details.\\n\\n" + (error?.localizedDescription ?? "No error details were returned.")', 1)
 
     replace(utils, '    NSUserDefaults* nud = [[NSUserDefaults alloc] initWithSuiteName:[LCSharedUtils appGroupID]];',
             '    NSUserDefaults* nud = NSUserDefaults.lcSharedDefaults ?: [[NSUserDefaults alloc] initWithSuiteName:[LCSharedUtils appGroupID]];', 1)
@@ -129,3 +145,92 @@ def patch(root, replace):
     }
     NSString *signer = [host.bundlePath stringByAppendingPathComponent:@"Frameworks/ZSign.dylib"];
     void* handle = dlopen(signer.fileSystemRepresentation, RTLD_GLOBAL);''', 1)
+
+    # Metadata is local. Online OCSP diagnostics are optional and cannot turn
+    # an unreachable responder into a revoked certificate or a failed setup.
+    replace(diagnose, '    @State var certificateValidateUntil : String? = nil',
+            '    @State var certificateValidateUntil : String? = nil\n'
+            '    @State private var certificateExpiryDate: Date?\n'
+            '    @State private var onlineStatusMessage: String?\n'
+            '    @State private var onlineCheckAttempted = false', 1)
+    replace(diagnose, '            validateCertificate()', '            loadCertificateMetadata()', 1)
+    replace(diagnose, '.foregroundStyle(certificateStatus == 0 ? .green : .red)',
+            '.foregroundStyle(certificateStatus == 0 ? .green : (certificateStatus == 1 ? .red : .orange))', 2)
+    source = diagnose.read_text()
+    date_start = source.index('Text(certificateValidateUntil != nil ?')
+    date_end = source.index('.foregroundStyle(certificateStatus', date_start)
+    line_end = source.index('\n', date_end)
+    replace(diagnose, source[date_start:line_end],
+            source[date_start:date_end] + '.foregroundStyle(certificateExpiryDate == nil ? Color.gray : (certificateExpiryDate! > Date() ? .green : .red))', 1)
+    replace(diagnose, '                Section {\n                    Button {\n                        testJITLessMode()',
+            '''                Section("Online certificate status") {
+                    Text("This optional check is separate from the on-device signing test.")
+                        .foregroundStyle(.secondary)
+                    Button("Check online status") { validateCertificate() }
+                        .disabled(certificateStatus == -1)
+                    if let onlineStatusMessage {
+                        Text("Online status unavailable. This does not mean the certificate is revoked.")
+                            .foregroundStyle(.orange)
+                        DisclosureGroup("Details") { Text(onlineStatusMessage).textSelection(.enabled) }
+                    }
+                }
+                Section {
+                    Button {
+                        testJITLessMode()''', 1)
+    source = diagnose.read_text()
+    start = source.index('    func validateCertificate() {')
+    end = source.index('    func getStatusText(', start)
+    replace(diagnose, source[start:end], '''    func loadCertificateMetadata() {
+        certificateStatus = 2
+        onlineStatusMessage = nil
+        onlineCheckAttempted = false
+        guard let metadata = LCUtils.embeddedCertificateMetadata() else { return }
+        certTeamId = metadata["team"] as? String
+        certificateExpiryDate = metadata["expiresAt"] as? Date
+        if let date = certificateExpiryDate {
+            let formatter = DateFormatter()
+            formatter.dateStyle = .short; formatter.timeStyle = .medium
+            certificateValidateUntil = formatter.string(from: date)
+        }
+    }
+
+    func validateCertificate() {
+        certificateStatus = -1
+        onlineStatusMessage = nil
+        onlineCheckAttempted = true
+        LCUtils.validateCertificate { status, date, ou, error in
+            DispatchQueue.main.async {
+                if let ou { certTeamId = ou }
+                if let date {
+                    certificateExpiryDate = date
+                    let formatter = DateFormatter()
+                    formatter.dateStyle = .short; formatter.timeStyle = .medium
+                    certificateValidateUntil = formatter.string(from: date)
+                }
+                certificateStatus = error == nil ? Int(status) : 2
+                onlineStatusMessage = error
+            }
+        }
+    }
+
+''', 1)
+    replace(diagnose, 'return "lc.jitlessDiag.certificateValid".loc', 'return "Responder reports not revoked"', 1)
+    # Only the online-status default, not unrelated Unknown fields.
+    replace(diagnose, '        default:\n            return "lc.common.unknown".loc',
+            '        default:\n            return onlineStatusMessage == nil ? (onlineCheckAttempted ? "Online status unknown" : "Not checked online") : "Online check unavailable"', 1)
+    source = utils.read_text()
+    start = source.index('+ (int)validateCertificateWithCompletionHandler:')
+    end = source.index('#pragma mark JIT', start)
+    replace(utils, source[start:end], '''+ (int)validateCertificateWithCompletionHandler:(void(^)(int, NSDate *, NSString *, NSString *))completionHandler {
+    NSError *error = nil;
+    [self loadStoreFrameworksWithError2:&error];
+    NSData *data = self.certificateData;
+    NSString *password = LCSharedUtils.certificatePassword;
+    if (error || !data.length || !password) {
+        completionHandler(2, nil, nil, error.localizedDescription ?: @"No readable certificate is available for the online check.");
+        return -6;
+    }
+    return [NSClassFromString(@"ZSigner") checkCert:data pass:password completionHandler:completionHandler];
+}
+
+''', 1)
