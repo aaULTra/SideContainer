@@ -12,7 +12,7 @@ class FullscreenActivationTests(unittest.TestCase):
         harness = r'''#import <Foundation/Foundation.h>
 @interface UISceneActivationRequestOptions : NSObject <NSCopying>
 @property BOOL fullscreen;
-@property NSString *otherOption;
+@property(nonatomic, strong) NSString *otherOption;
 - (void)_setRequestFullscreen:(BOOL)value;
 @end
 @implementation UISceneActivationRequestOptions
@@ -23,10 +23,10 @@ class FullscreenActivationTests(unittest.TestCase):
 }
 @end
 @interface UISceneSessionActivationRequest : NSObject <NSCopying>
-@property id session;
-@property id userActivity;
-@property id role;
-@property UISceneActivationRequestOptions *options;
+@property(nonatomic, strong) id session;
+@property(nonatomic, strong) id userActivity;
+@property(nonatomic, strong) id role;
+@property(nonatomic, strong) UISceneActivationRequestOptions *options;
 @end
 @implementation UISceneSessionActivationRequest
 - (id)copyWithZone:(NSZone *)zone {
@@ -36,7 +36,7 @@ class FullscreenActivationTests(unittest.TestCase):
 }
 @end
 @interface UIApplication : NSObject
-@property UISceneSessionActivationRequest *received;
+@property(nonatomic, strong) UISceneSessionActivationRequest *received;
 @property int count;
 - (void)activateSceneSessionForRequest:(UISceneSessionActivationRequest *)request errorHandler:(void (^)(NSError *))handler;
 @end
