@@ -30,6 +30,10 @@ class Defaults {
     func integer(forKey: String) -> Int { mode }
 }
 class LCUtils { static let appGroupUserDefault = Defaults() }
+class SIFullscreenWindow {
+    static var ready = true
+    static func isReady(container: String) -> Bool { ready }
+}
 class UIApplication {
     static let shared = UIApplication()
     var destroyed: [String] = []
@@ -49,7 +53,11 @@ class UIApplication {
         SILaunchWindow.guestReady(container: "unrelated", scene: other)
         first.complete()
         assert(UIApplication.shared.destroyed.isEmpty)
+        SIFullscreenWindow.ready = false
         SILaunchWindow.guestReady(container: "one", scene: guest)
+        assert(UIApplication.shared.destroyed.isEmpty)
+        SIFullscreenWindow.ready = true
+        SILaunchWindow.fullscreenReady(container: "one")
         assert(UIApplication.shared.destroyed == ["launcher"])
         SILaunchWindow.guestReady(container: "one", scene: guest)
         assert(UIApplication.shared.destroyed.count == 1)

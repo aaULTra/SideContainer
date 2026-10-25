@@ -53,6 +53,10 @@ final class SILaunchWindow {
         request.closeIfReady()
     }
 
+    static func fullscreenReady(container: String) {
+        pending[container]?.closeIfReady()
+    }
+
     func complete() {
         succeeded = true
         closeIfReady()
@@ -64,6 +68,7 @@ final class SILaunchWindow {
 
     private func closeIfReady() {
         guard Self.pending[container] === self, succeeded,
+              SIFullscreenWindow.isReady(container: container),
               let launcher, let guest, guest !== launcher,
               guest.activationState != .unattached,
               Self.launchers[launcher.session.persistentIdentifier] === launcher else { return }

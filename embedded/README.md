@@ -2,12 +2,18 @@
 
 ## Native launch windows
 
-New LC native windows request fullscreen even when the launcher was resized.
-iPadOS controls the final window placement. This does not resize existing app
-windows or change the selected native/virtual window mode.
+Each new LC native app window requests fullscreen even when the launcher was
+resized. Both UIKit activation APIs are covered. After SwiftUI attaches the
+guest window, a one-time request addresses that exact session if its restored
+size is smaller than the display. Other app windows are never resized.
+After placement, the launch handling stops: you can resize the app normally,
+and focusing an existing app preserves its size. This does not change the
+selected native/virtual window mode.
 
 For **Launch with JIT** in native window mode, the originating LC launcher
-session closes after the launch handoff and the new guest's scene is ready.
+session closes after the launch handoff and the new guest's scene is ready
+and has fullscreen dimensions. If iPadOS refuses the placement, the request
+expires after two seconds, leaves the launcher open and logs the failure.
 Built-in JIT must finish successfully first; external JIT retains upstream's
 handoff behavior (it does not report debugger completion back to LC).
 Failures before handoff and cancellations leave the launcher open. Only Main
@@ -17,7 +23,8 @@ never exited. An ambiguous background launch keeps the launcher open.
 
 On an iPad, keep a guest running in native window A, reopen the LC launcher,
 resize it, then launch a second JIT guest. Verify the second app starts
-fullscreen and only the launcher closes. Repeat with JIT failure/cancellation,
+fullscreen before the launcher closes. Resize that app and focus it again;
+its resized dimensions should persist. Repeat with JIT failure/cancellation,
 an ordinary guest, and a launch URL. The regression tests exercise handoff
 ordering, cancellation and scene isolation; actual window placement and
 guest survival still need a device test.
