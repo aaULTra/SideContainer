@@ -10,6 +10,10 @@ After placement, the launch handling stops: you can resize the app normally,
 and focusing an existing app preserves its size. This does not change the
 selected native/virtual window mode.
 
+Native guest app windows hide the status bar in both the host and embedded
+guest scene, including after rotation or resizing. The LC launcher and the
+app-terminated screen retain their normal status bars.
+
 For **Launch with JIT** in native window mode, the originating LC launcher
 session closes after the launch handoff and the new guest's scene is ready
 and has fullscreen dimensions. If iPadOS refuses the placement, the request

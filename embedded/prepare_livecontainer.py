@@ -205,6 +205,21 @@ def prepare(root):
     patch_jit(root, replace)
     patch_launch_window(root, replace)
     patch_fullscreen(root, replace)
+    # Hide both layers of the native guest window's status bar: the SwiftUI
+    # host chrome and the embedded guest scene. Main/launcher scenes keep
+    # their normal status bar, and later scene updates cannot re-enable the
+    # guest bar during rotation, focus changes or window resizing.
+    replace(root / "MultitaskSupport/AppSceneViewController.m",
+            'settings.statusBarDisabled = !self.isNativeWindow;',
+            'settings.statusBarDisabled = YES;', 1)
+    native_window = root / "MultitaskSupport/MultitaskAppWindow.swift"
+    replace(native_window, '            settings.interruptionPolicy = 0',
+            '            settings.setStatusBarDisabled(true)\n'
+            '            settings.interruptionPolicy = 0', 1)
+    replace(native_window,
+            '            .background(SIFullscreenGuestWindow(container: appInfo.dataUUID))',
+            '            .background(SIFullscreenGuestWindow(container: appInfo.dataUUID))\n'
+            '            .statusBarHidden(true)', 1)
     (root / ".sideinstaller-adapted").write_text(LIVE_CONTAINER_COMMIT + "\n")
 
 
