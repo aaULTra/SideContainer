@@ -50,6 +50,7 @@ class Window { let windowScene: UIWindowScene; init(_ scene: UIWindowScene) { wi
 }
 @MainActor class SILaunchWindow {
     static var ready: [String] = []
+    static func guestReady(container: String, scene: UIWindowScene?) {}
     static func fullscreenReady(container: String) { ready.append(container) }
 }
 '''

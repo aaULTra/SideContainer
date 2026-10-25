@@ -10,14 +10,14 @@ def patch(root, replace):
     replace(scene_delegate, '    var window: UIWindow?',
             '    var window: UIWindow?\n\n'
             '    func sceneDidDisconnect(_ scene: UIScene) {\n'
-            '        SILaunchWindow.launchers.removeValue(forKey: scene.session.persistentIdentifier)\n'
+            '        SILaunchWindow.disconnect(scene)\n'
             '    }', 1)
     app = root / 'LiveContainerSwiftUI/App/LiveContainerSwiftUIApp.swift'
     replace(app, '            LCTabView()',
             '            LCTabView()\n                .background(SILauncherWindowMarker())', 1)
     model = root / 'LiveContainerSwiftUI/Models/LCAppModel.swift'
     replace(model, 'forceJIT: Bool? = nil) async throws{',
-            'forceJIT: Bool? = nil, launcherScene: UIWindowScene? = nil) async throws{', 1)
+            'forceJIT: Bool? = nil, launcherScene: UIWindowScene? = nil, closeLauncher: Bool = false) async throws{', 1)
     replace(model, '        let classicMode = appInfo.defaultClassicMode',
             '        let launchWindow = await MainActor.run {\n'
             '            SILaunchWindow.begin(container: currentDataFolder, source: launcherScene)\n'
@@ -26,7 +26,7 @@ def patch(root, replace):
             '        defer { if !didHandOffLaunchWindow { Task { @MainActor in launchWindow?.cancel() } } }\n'
             '        let classicMode = appInfo.defaultClassicMode', 1)
     replace(model, '        // Record the launch time',
-            '        if jitNeeded && multitask {\n'
+            '        if (jitNeeded || closeLauncher) && multitask {\n'
             '            await MainActor.run { launchWindow?.complete() }\n'
             '            didHandOffLaunchWindow = true\n'
             '        }\n\n'

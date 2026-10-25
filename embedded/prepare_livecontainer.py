@@ -14,6 +14,7 @@ from certificate_validation import patch as patch_certificate_validation
 from jit.patch import patch as patch_jit
 from launch_window import patch as patch_launch_window
 from fullscreen import patch as patch_fullscreen
+from launcher_routing import patch as patch_launcher_routing
 
 LIVE_CONTAINER_COMMIT = "4dbe0f9a626de801184a42c0be8d2cb105058e3d"
 HOST_ID = "com.aault.livecontainer.sideinstaller"
@@ -205,6 +206,7 @@ def prepare(root):
     patch_jit(root, replace)
     patch_launch_window(root, replace)
     patch_fullscreen(root, replace)
+    patch_launcher_routing(root, replace, HOST_SCHEME)
     # Hide both layers of the native guest window's status bar: the SwiftUI
     # host chrome and the embedded guest scene. Main/launcher scenes keep
     # their normal status bar, and later scene updates cannot re-enable the

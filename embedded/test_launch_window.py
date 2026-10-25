@@ -16,14 +16,25 @@ class LaunchWindowTests(unittest.TestCase):
         # Compile the production coordinator, replacing only the UIKit surface.
         coordinator = source[source.index('@MainActor\nfinal class SILaunchWindow'):]
         harness = '''import Foundation
-class Session { let persistentIdentifier: String; init(_ id: String) { persistentIdentifier = id } }
+class Session { let persistentIdentifier: String; var userInfo: [String: Any]?; init(_ id: String) { persistentIdentifier = id } }
 enum Activation { case foregroundActive, background, unattached }
 class Window { var isKeyWindow = true }
-class UIWindowScene {
+class UIScene {
     let session: Session
+    init(_ id: String) { session = Session(id) }
+}
+class UIWindowScene: UIScene {
     var activationState = Activation.foregroundActive
     var windows = [Window()]
-    init(_ id: String) { session = Session(id) }
+}
+class Model { var mainWindowOpened = false }
+class DataManager { static let shared = DataManager(); let model = Model() }
+class SILauncherRouter {
+    static let shared = SILauncherRouter()
+    var canCloseLauncher = true
+    var urls: [URL] = []
+    func receive(_ url: URL) { urls.append(url) }
+    func pump() {}
 }
 class Defaults {
     var mode = 1
@@ -37,6 +48,7 @@ class SIFullscreenWindow {
 class UIApplication {
     static let shared = UIApplication()
     var destroyed: [String] = []
+    func requestSceneSessionActivation(_ session: Session, userActivity: Any?, options: Any?, errorHandler: (NSError) -> Void) {}
     func requestSceneSessionDestruction(_ session: Session, options: Any?, errorHandler: (NSError) -> Void) {
         destroyed.append(session.persistentIdentifier)
     }
@@ -48,7 +60,7 @@ class UIApplication {
         let launcher = UIWindowScene("launcher")
         let guest = UIWindowScene("new-app")
         let other = UIWindowScene("other-app")
-        SILaunchWindow.launchers = ["launcher": launcher]
+        SILaunchWindow.registerLauncher(launcher)
         let first = SILaunchWindow.begin(container: "one", source: launcher)!
         SILaunchWindow.guestReady(container: "unrelated", scene: other)
         first.complete()
@@ -62,6 +74,8 @@ class UIApplication {
         SILaunchWindow.guestReady(container: "one", scene: guest)
         assert(UIApplication.shared.destroyed.count == 1)
 
+        SILaunchWindow.disconnect(launcher)
+        SILaunchWindow.registerLauncher(launcher)
         UIApplication.shared.destroyed = []
         let second = SILaunchWindow.begin(container: "two", source: launcher)!
         SILaunchWindow.guestReady(container: "two", scene: guest)
@@ -69,6 +83,8 @@ class UIApplication {
         second.complete()
         assert(UIApplication.shared.destroyed == ["launcher"])
 
+        SILaunchWindow.disconnect(launcher)
+        SILaunchWindow.registerLauncher(launcher)
         UIApplication.shared.destroyed = []
         let cancelled = SILaunchWindow.begin(container: "cancel", source: launcher)!
         cancelled.cancel()
@@ -85,6 +101,8 @@ class UIApplication {
         current.complete()
         assert(UIApplication.shared.destroyed == ["launcher"])
 
+        SILaunchWindow.disconnect(launcher)
+        SILaunchWindow.registerLauncher(launcher)
         UIApplication.shared.destroyed = []
         let same = SILaunchWindow.begin(container: "same", source: launcher)!
         SILaunchWindow.guestReady(container: "same", scene: launcher)
@@ -94,13 +112,17 @@ class UIApplication {
         assert(SILaunchWindow.begin(container: "guest-source", source: guest) == nil)
 
         let anotherLauncher = UIWindowScene("another-launcher")
+        anotherLauncher.session.userInfo = ["SIWindowKind": "launcher"]
         SILaunchWindow.launchers["another-launcher"] = anotherLauncher
         assert(SILaunchWindow.begin(container: "ambiguous", source: nil) == nil)
         let explicit = SILaunchWindow.begin(container: "explicit", source: launcher)!
         SILaunchWindow.guestReady(container: "explicit", scene: guest)
         explicit.complete()
         assert(UIApplication.shared.destroyed == ["launcher"])
+        SILaunchWindow.disconnect(anotherLauncher)
 
+        SILaunchWindow.disconnect(launcher)
+        SILaunchWindow.registerLauncher(launcher)
         UIApplication.shared.destroyed = []
         let detached = SILaunchWindow.begin(container: "detached", source: launcher)!
         SILaunchWindow.launchers.removeValue(forKey: "launcher")
@@ -108,6 +130,42 @@ class UIApplication {
         detached.complete()
         assert(UIApplication.shared.destroyed.isEmpty)
         detached.cancel()
+        SILaunchWindow.disconnect(anotherLauncher)
+        SILaunchWindow.registerLauncher(launcher)
+        UIApplication.shared.destroyed = []
+        let duplicate = UIWindowScene("duplicate-launcher")
+        let coldURL = URL(string: "livecontainer-sideinstaller://livecontainer-launch?bundle-name=Guest.app")!
+        SILaunchWindow.incomingURLs["duplicate-launcher"] = [coldURL]
+        SILaunchWindow.registerLauncher(duplicate)
+        assert(UIApplication.shared.destroyed == ["duplicate-launcher"])
+        assert(SILaunchWindow.canonicalLauncher === launcher)
+        assert(SILauncherRouter.shared.urls == [coldURL])
+        SILaunchWindow.registerGuest(guest, container: "guest-role")
+        SILaunchWindow.registerLauncher(guest)
+        assert(UIApplication.shared.destroyed == ["duplicate-launcher"]) // guest is never a launcher
+        assert(guest.session.userInfo?["SIWindowKind"] as? String == "guest")
+        SILaunchWindow.disconnect(duplicate)
+        assert(DataManager.shared.model.mainWindowOpened) // duplicate disconnect cannot clear primary
+
+        SILaunchWindow.disconnect(launcher)
+        SILaunchWindow.registerLauncher(launcher)
+        UIApplication.shared.destroyed = []
+        let reuse = SILaunchWindow.begin(container: "guest-role", source: launcher)!
+        SIFullscreenWindow.ready = false // keep the user's resized existing window
+        reuse.completeExistingGuest()
+        assert(UIApplication.shared.destroyed == ["launcher"])
+        SILaunchWindow.disconnect(launcher)
+        SILaunchWindow.registerLauncher(launcher)
+        UIApplication.shared.destroyed = []
+        let queued = SILaunchWindow.begin(container: "queued", source: launcher)!
+        SIFullscreenWindow.ready = true
+        SILauncherRouter.shared.canCloseLauncher = false
+        SILaunchWindow.guestReady(container: "queued", scene: guest)
+        queued.complete()
+        assert(UIApplication.shared.destroyed.isEmpty)
+        SILauncherRouter.shared.canCloseLauncher = true
+        SILaunchWindow.resumeReadyClosures()
+        assert(UIApplication.shared.destroyed == ["launcher"])
         LCUtils.appGroupUserDefault.mode = 0
         assert(SILaunchWindow.begin(container: "virtual", source: anotherLauncher) == nil)
         print("Scene isolation and handoff checks passed")

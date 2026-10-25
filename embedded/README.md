@@ -2,6 +2,32 @@
 
 ## Native launch windows
 
+Launcher scenes and native guest scenes now carry explicit session metadata.
+Only one launcher is retained; an additional launcher forwards its launch URL
+to the existing one, focuses it, and closes only the duplicate launcher.
+Disconnecting a duplicate cannot clear the existing launcher's identity.
+
+Direct app URLs, **Launch App** Shortcuts and generated Home Screen icons use
+the same scene-aware launch path. They show an Opening app screen while LC
+performs its normal app-lock, signing and JIT checks. Distinct requests queue;
+repeated taps on the same icon do not create parallel JIT launches. A successful
+direct launch closes its launcher after the guest is ready; a failed or cancelled
+launch returns to the library and keeps the launcher available. An existing
+native guest is focused without restarting it or changing its resized dimensions.
+
+Use the app's **Add to Home Screen → Copy Launch URL** for the **Launch App**
+Shortcut (or Shortcuts' Open URLs action), then add that shortcut to the Home
+Screen with the desired app icon. **Create Web Clip** also generates a link
+bound to the selected container. Newly copied/generated links correctly encode
+spaces, ampersands and non-ASCII names. Existing links to this build continue
+to work. Re-create a link that points at stock LiveContainer's URL scheme or
+that was generated without a container you want to keep fixed.
+
+Native Shortcut launches target this combined host and retain the app's JIT
+settings, rather than preselecting a classic-mode bootstrap. Keep the existing
+LaunchAppExtension and ShareExtension when signing. iPadOS still controls its
+app-switch animation and any required authentication or JIT handoff.
+
 Each new LC native app window requests fullscreen even when the launcher was
 resized. Both UIKit activation APIs are covered. After SwiftUI attaches the
 guest window, a one-time request addresses that exact session if its restored

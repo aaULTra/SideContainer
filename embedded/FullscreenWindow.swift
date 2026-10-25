@@ -34,11 +34,13 @@ enum SIFullscreenWindow {
         @objc private func sceneActivated(_ notification: Notification) {
             guard let scene = notification.object as? UIWindowScene,
                   scene === window?.windowScene else { return }
+            SILaunchWindow.guestReady(container: container, scene: scene)
             schedule()
         }
 
         override func didMoveToWindow() {
             super.didMoveToWindow()
+            if let scene = window?.windowScene { SILaunchWindow.guestReady(container: container, scene: scene) }
             schedule()
         }
 
