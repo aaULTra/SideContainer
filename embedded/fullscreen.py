@@ -21,6 +21,10 @@ def patch(root, replace):
             '        SIFullscreenActivationHooks.install()\n\n'
             '        // remove symbol caches if user upgraded iOS', 1)
     window = root / 'MultitaskSupport/MultitaskAppWindow.swift'
+    # LCUtils dispatches this entry point to the main queue. Make that contract
+    # explicit so the fullscreen state is armed synchronously before openWindow.
+    replace(window, '    @objc class func openAppWindow(',
+            '    @MainActor @objc class func openAppWindow(', 1)
     replace(window, '        openWindow(id: "appView", value: dataUUID)',
             '        SIFullscreenWindow.request(container: dataUUID)\n'
             '        openWindow(id: "appView", value: dataUUID)', 1)
