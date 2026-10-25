@@ -12,6 +12,7 @@ import subprocess
 from pathlib import Path
 from certificate_validation import patch as patch_certificate_validation
 from jit.patch import patch as patch_jit
+from launch_window import patch as patch_launch_window
 
 LIVE_CONTAINER_COMMIT = "4dbe0f9a626de801184a42c0be8d2cb105058e3d"
 HOST_ID = "com.aault.livecontainer.sideinstaller"
@@ -48,9 +49,7 @@ def prepare(root):
     replace(
         app_delegate,
         "newOptions!._setRequestFullscreen(UIScreen.main.bounds == self.keyWindow!.bounds)",
-        'newOptions!._setRequestFullscreen('
-        'LCUtils.appGroupUserDefault.integer(forKey: "LCMultitaskMode") == 1 || '
-        '(self.keyWindow?.bounds == UIScreen.main.bounds))',
+        'newOptions!._setRequestFullscreen(true)',
         1
     )
 
@@ -203,6 +202,7 @@ def prepare(root):
     edit_plist(root / "LiveContainer/Info.plist", host_plist)
     patch_certificate_validation(root, replace)
     patch_jit(root, replace)
+    patch_launch_window(root, replace)
     (root / ".sideinstaller-adapted").write_text(LIVE_CONTAINER_COMMIT + "\n")
 
 
@@ -211,3 +211,4 @@ if __name__ == "__main__":
     parser.add_argument("checkout", type=Path)
     args = parser.parse_args()
     prepare(args.checkout.resolve())
+

@@ -1,5 +1,27 @@
 # LiveContainer + SideInstaller (experimental embedded flavour)
 
+## Native launch windows
+
+New LC native windows request fullscreen even when the launcher was resized.
+iPadOS controls the final window placement. This does not resize existing app
+windows or change the selected native/virtual window mode.
+
+For **Launch with JIT** in native window mode, the originating LC launcher
+session closes after the launch handoff and the new guest's scene is ready.
+Built-in JIT must finish successfully first; external JIT retains upstream's
+handoff behavior (it does not report debugger completion back to LC).
+Failures before handoff and cancellations leave the launcher open. Only Main
+scenes are eligible, captured before asynchronous signing/JIT work. Other
+guest windows and containers are never destroyed, and the host process is
+never exited. An ambiguous background launch keeps the launcher open.
+
+On an iPad, keep a guest running in native window A, reopen the LC launcher,
+resize it, then launch a second JIT guest. Verify the second app starts
+fullscreen and only the launcher closes. Repeat with JIT failure/cancellation,
+an ordinary guest, and a launch URL. The regression tests exercise handoff
+ordering, cancellation and scene isolation; actual window placement and
+guest survival still need a device test.
+
 ## BCD Wine socket compatibility (experimental)
 
 For the `com.thebcd69.bcd` guest (including signed identifier suffixes), the
@@ -324,3 +346,4 @@ Cellular connectivity still requires the LocalDevVPN route and a working device
 listener. This change does not claim to fix cellular-only tunnel establishment,
 DDI transport errors, or the guest's script protocol. The source of the pairing
 is shown separately from preparation/JIT readiness.
+
