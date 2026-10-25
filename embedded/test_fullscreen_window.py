@@ -12,6 +12,7 @@ class FullscreenWindowTests(unittest.TestCase):
         source = Path(__file__).with_name('FullscreenWindow.swift').read_text()
         coordinator = source[source.index('@MainActor'):source.index('struct SIFullscreenGuestWindow')]
         harness = '''import Foundation
+import CoreGraphics
 class Coordinates { var bounds: CGRect; init(_ bounds: CGRect) { self.bounds = bounds } }
 class Display { var coordinateSpace = Coordinates(CGRect(x: 0, y: 0, width: 1024, height: 768)) }
 enum Activation { case foregroundActive, background }
