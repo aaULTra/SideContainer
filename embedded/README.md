@@ -15,6 +15,12 @@ direct launch closes its launcher after the guest is ready; a failed or cancelle
 launch returns to the library and keeps the launcher available. An existing
 native guest is focused without restarting it or changing its resized dimensions.
 
+Cold Web Clip URL delivery is claimed once across SwiftUI's appearance and
+URL-change callbacks. Each task carries a unique request ID and the tagged
+launcher captured before launch; late completion from an older task cannot
+cancel another task's window handoff. This also applies to Open URLs and
+Launch App Shortcuts. Existing generated links need no changes for this fix.
+
 Use the app's **Add to Home Screen → Copy Launch URL** for the **Launch App**
 Shortcut (or Shortcuts' Open URLs action), then add that shortcut to the Home
 Screen with the desired app icon. **Create Web Clip** also generates a link

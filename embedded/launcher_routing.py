@@ -35,11 +35,26 @@ def patch(root, replace, host_scheme):
             '    @EnvironmentObject private var sharedModel : SharedModel', 1)
     replace(apps, 'guard sharedModel.selectedTab == .apps, let link',
             'guard SILaunchWindow.isLauncher(sceneDelegate.window?.windowScene), sharedModel.selectedTab == .apps, let link', 2)
+    replace(apps, '                sharedModel.deepLink = nil\n                handleURL(url: link)',
+            '                consumeLaunchURL(link)', 1)
+    replace(apps, '            sharedModel.deepLink = nil\n            handleURL(url: link)',
+            '            consumeLaunchURL(link)', 1)
     signature = '    func launchAppWithBundleId(bundleId : String, container : String?, urlStr: String? = nil, forceJIT: Bool? = nil) async {'
-    replace(apps, signature, signature + '\n'
-            '        let origin = sceneDelegate.window?.windowScene\n'
+    replace(apps, signature, signature.replace(') async {', ', launchRequestID: UUID? = nil) async {') + '\n'
+            '        let origin = SILauncherRouter.shared.launcher(for: launchRequestID)\n'
             '        var launchSucceeded = false\n'
-            '        defer { SILauncherRouter.shared.finish(success: launchSucceeded) }', 1)
+            '        defer { if let launchRequestID { SILauncherRouter.shared.finish(id: launchRequestID, success: launchSucceeded) } }', 1)
+    replace(apps, '    func handleURL(url : URL) {',
+            '    func consumeLaunchURL(_ url: URL) {\n'
+            '        guard sharedModel.deepLink == url else { return }\n'
+            '        let requestID = SILauncherRouter.shared.claim(url)\n'
+            '        if SILauncherRouter.isAppLaunch(url) && requestID == nil { return }\n'
+            '        sharedModel.deepLink = nil\n'
+            '        handleURL(url: url, launchRequestID: requestID)\n'
+            '    }\n\n'
+            '    func handleURL(url : URL, launchRequestID: UUID? = nil) {', 1)
+    replace(apps, 'Task { await launchAppWithBundleId(bundleId: bundleId, container: containerName, urlStr: urlStr, forceJIT: forceJIT) }',
+            'Task { await launchAppWithBundleId(bundleId: bundleId, container: containerName, urlStr: urlStr, forceJIT: forceJIT, launchRequestID: launchRequestID) }', 1)
     replace(apps, '            try await appFound.runApp(multitask: nil, containerFolderName: container, urlStr: urlStr, forceJIT: forceJIT)',
             '            appFound.delegate = self\n'
             '            let previousLaunch = appFound.appInfo.lastLaunched\n'

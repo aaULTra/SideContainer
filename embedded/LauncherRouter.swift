@@ -9,6 +9,9 @@ final class SILauncherRouter: ObservableObject {
     static let shared = SILauncherRouter()
     @Published private(set) var activeURL: URL?
     private var queue: [URL] = []
+    private var activeID: UUID?
+    private var claimed = false
+    private weak var activeLauncher: UIWindowScene?
 
     var canCloseLauncher: Bool { queue.isEmpty }
 
@@ -37,15 +40,36 @@ final class SILauncherRouter: ObservableObject {
     }
 
     func pump() {
-        guard activeURL == nil, !queue.isEmpty, SILaunchWindow.canonicalLauncher != nil else { return }
+        guard activeURL == nil, !queue.isEmpty, let launcher = SILaunchWindow.canonicalLauncher else { return }
+        activeID = UUID()
+        claimed = false
+        activeLauncher = launcher
         activeURL = queue.removeFirst()
         DataManager.shared.model.selectedTab = .apps
         DataManager.shared.model.deepLink = activeURL
     }
 
-    func finish(success: Bool) {
-        guard activeURL != nil else { return }
+    /// SwiftUI can deliver the same deep link through onAppear and onChange.
+    /// Only the first callback may start a launch task, even on a cold start.
+    func claim(_ url: URL) -> UUID? {
+        guard activeURL == url, !claimed, let id = activeID else { return nil }
+        claimed = true
+        return id
+    }
+
+    func launcher(for id: UUID?) -> UIWindowScene? {
+        guard let id, id == activeID, claimed, SILaunchWindow.isLauncher(activeLauncher) else { return nil }
+        return activeLauncher
+    }
+
+    func finish(id: UUID, success: Bool) {
+        // A late callback from an older icon tap must not cancel the next
+        // request or erase its launcher-close handoff.
+        guard id == activeID, claimed else { return }
         activeURL = nil
+        activeID = nil
+        activeLauncher = nil
+        claimed = false
         if !success {
             // Leave errors/authentication cancellation visible in the launcher.
             queue.removeAll()
