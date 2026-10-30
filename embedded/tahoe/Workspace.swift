@@ -43,10 +43,13 @@ final class TahoeWorkspace: ObservableObject {
 
     func receiveGuest(name: String, bundleID: String, dataUUID: String, completion: ((NSNumber?, Error?) -> Void)?) {
         if let existing = state.windows.first(where: { $0.kind == .guest && $0.resourceID == dataUUID }) {
-            state.focus(existing.id)
-            guests[existing.id]?.addCompletion(completion)
-            showManagement = false
-            return
+            if guests[existing.id]?.terminated == true { close(existing.id) }
+            else {
+                state.focus(existing.id)
+                guests[existing.id]?.addCompletion(completion)
+                showManagement = false
+                return
+            }
         }
         let session = TahoeGuestSession(bundleID: bundleID, dataUUID: dataUUID, completion: completion)
         let id = state.open(.guest, title: name, resourceID: dataUUID)

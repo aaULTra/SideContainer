@@ -60,7 +60,8 @@ import CoreGraphics
         precondition(TahoeAddress.url(for: " example.com/path ")?.absoluteString == "https://example.com/path")
         precondition(TahoeAddress.url(for: "https://example.com")?.scheme == "https")
         precondition(TahoeAddress.url(for: "http://localhost:8080")?.port == 8080)
-        for input in ["", "  ", "javascript:alert(1)", "file:///private/test", "ftp://example.com"] {
+        precondition(TahoeAddress.url(for: "example.com:8080/test")?.port == 8080)
+        for input in ["", "  ", "javascript:alert(1)", "file:///private/test", "ftp://example.com", "mailto:user@example.com", "data:text/html,test"] {
             precondition(TahoeAddress.url(for: input) == nil)
         }
         let search = TahoeAddress.url(for: "swift ui & windows")!

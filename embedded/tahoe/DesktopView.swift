@@ -4,6 +4,7 @@ struct TahoeDesktopView: View {
     @ObservedObject private var workspace = TahoeWorkspace.shared
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
     @State private var performanceTarget: UUID?
+    @FocusState private var spotlightFocused: Bool
     @AppStorage("TahoeDarkAppearance") private var darkAppearance = false
 
     var body: some View {
@@ -55,6 +56,7 @@ struct TahoeDesktopView: View {
                 Button("New Browser Window") { workspace.openBrowser() }.keyboardShortcut("n", modifiers: .command)
                 Button("Spotlight") { workspace.showSpotlight.toggle() }.keyboardShortcut(" ", modifiers: .command)
                 Button("Minimise Window") { if let id = workspace.state.activeID { workspace.state.minimize(id) } }.keyboardShortcut("m", modifiers: .command)
+                Button("Exit Fullscreen") { if let id = workspace.state.fullscreenID { workspace.state.toggleFullscreen(id) } }.keyboardShortcut(.escape, modifiers: [])
             }.hidden()
         }
         .confirmationDialog("Unload other browser pages? Unsaved page state and navigation history will be lost.",
@@ -83,6 +85,7 @@ struct TahoeDesktopView: View {
             Color.black.opacity(0.25).onTapGesture { workspace.showSpotlight = false }
             VStack(alignment: .leading, spacing: 12) {
                 TextField("Search applications or enter a website", text: $workspace.search)
+                    .focused($spotlightFocused)
                     .font(.title3).onSubmit {
                         if let url = TahoeAddress.url(for: workspace.search) { workspace.openBrowser(url: url) }
                         workspace.showSpotlight = false
@@ -90,6 +93,7 @@ struct TahoeDesktopView: View {
                 TahoeApplicationsView(workspace: workspace, filter: workspace.search)
             }
             .frame(maxWidth: 600, maxHeight: 420).modifier(TahoeGlass()).padding()
+            .onAppear { spotlightFocused = true }
         }
     }
 
@@ -272,7 +276,10 @@ private struct TahoeDock: View {
         ScrollView(.horizontal, showsIndicators: false) {
             HStack(alignment: .bottom, spacing: 8) {
                 ForEach(Array(items.enumerated()), id: \.offset) { index, item in
-                    Button { workspace.open(item.0) } label: {
+                    Button {
+                        if let existing = workspace.state.windows.last(where: { $0.kind == item.0 }) { workspace.state.focus(existing.id) }
+                        else { workspace.open(item.0) }
+                    } label: {
                         VStack(spacing: 4) {
                             Image(systemName: item.2).font(.system(size: 30)).foregroundStyle(.white)
                                 .frame(width: 48, height: 48).background(item.3.gradient, in: RoundedRectangle(cornerRadius: 12))
@@ -280,6 +287,9 @@ private struct TahoeDock: View {
                             Circle().fill(workspace.state.windows.contains(where: { $0.kind == item.0 }) ? Color.primary : .clear).frame(width: 4, height: 4)
                         }.frame(width: 52, height: 66, alignment: .bottom)
                     }.buttonStyle(.plain).accessibilityLabel(item.1).help(item.1)
+                        .contextMenu {
+                            if item.0 == .browser { Button("New Browser Window") { workspace.openBrowser() } }
+                        }
                 }
                 if !workspace.state.windows.isEmpty {
                     Divider().frame(height: 40)
@@ -297,6 +307,7 @@ private struct TahoeDock: View {
                     switch phase { case .active(let location): pointer = location.x; case .ended: pointer = nil }
                 }
         }
+        .scrollClipDisabled()
         .fixedSize(horizontal: false, vertical: true).frame(maxWidth: min(workspace.state.canvas.width - 24, 850))
         .modifier(TahoeGlass(radius: 24))
     }

@@ -20,6 +20,7 @@ def patch(root, replace):
     replace(tabs, "        .downloadAlert(helper: downloadHelper)",
             "        .opacity(tahoeWorkspace.showManagement ? 1 : 0)\n"
             "        .allowsHitTesting(tahoeWorkspace.showManagement)\n"
+            "        .accessibilityHidden(!tahoeWorkspace.showManagement)\n"
             "        .overlay {\n"
             "            TahoeDesktopView()\n"
             "                .opacity(tahoeWorkspace.showManagement ? 0 : 1)\n"
@@ -56,7 +57,7 @@ def patch(root, replace):
     # scene creation, even if no PID existed at the time of the close request.
     scene = root / "MultitaskSupport/AppSceneViewController.m"
     replace(scene, "@property int resizeDebounceToken;",
-            "@property int resizeDebounceToken;\n@property BOOL tahoeTerminationRequested;", 1)
+            "@property int resizeDebounceToken;\n@property(atomic) BOOL tahoeTerminationRequested;", 1)
     replace(scene, "- (void)terminate {\n    if(self.isAppRunning) {",
             "- (void)terminate {\n    self.tahoeTerminationRequested = YES;\n    if(self.isAppRunning) {", 1)
     replace(scene, "            self.pid = [self.extension pidForRequestIdentifier:self.identifier];",
