@@ -114,6 +114,26 @@ def package(host, guest, output, dylibify, upstream, jit_products, jit_source):
     # Source notices travel with the experimental build.
     notices = app / "EmbeddedSourceNotices"
     notices.mkdir()
+    if (upstream / ".tahoe-adapted").exists():
+        desktop = Path(__file__).resolve().parent / "tahoe"
+        shutil.copytree(desktop, notices / "TahoeDesktop", ignore=shutil.ignore_patterns("__pycache__"))
+        (notices / "Tahoe-LiveContainer-adaptation.patch").write_bytes(
+            subprocess.check_output(["git", "-C", str(upstream), "diff", "--binary", "HEAD"]))
+        # Include generated untracked source units as well as the tracked diff.
+        generated = notices / "LiveContainer-generated-source"
+        for name in subprocess.check_output(
+                ["git", "-C", str(upstream), "ls-files", "--others", "--exclude-standard"], text=True).splitlines():
+            source = upstream / name
+            if source.suffix not in (".swift", ".m", ".h", ".inc"):
+                continue
+            target = generated / name
+            target.parent.mkdir(parents=True, exist_ok=True)
+            shutil.copyfile(source, target)
+        (notices / "Tahoe-SOURCE.txt").write_text(
+            "Integration: https://github.com/aaULTra/SideContainer/tree/" + os.environ.get("SI_SOURCE_REVISION", "feature/tahoe-desktop-livecontainer") + "\n"
+            "Runtime: https://github.com/LiveContainer/LiveContainer/tree/4dbe0f9a626de801184a42c0be8d2cb105058e3d\n"
+            "Build: .github/workflows/build-tahoe.yml in the integration repository.\n"
+            "Tracked runtime adaptation and generated source units are included alongside this notice.\n")
     shutil.copyfile(upstream / "LICENSE", notices / "LiveContainer-LICENSE")
     shutil.copyfile(Path(__file__).resolve().parent.parent / "LICENSE.md", notices / "SideInstaller-LICENSE.md")
     shutil.copyfile(jit_source / "LICENSE", notices / "StikJIT-MPL-2.0-LICENSE")

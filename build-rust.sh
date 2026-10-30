@@ -7,9 +7,17 @@ set -euo pipefail
 export DEVELOPER_DIR="${DEVELOPER_DIR:-/Applications/Xcode-beta.app/Contents/Developer}"
 # Match the app's deployment floor, or cc-rs objects trip linker warnings.
 export IPHONEOS_DEPLOYMENT_TARGET="${IPHONEOS_DEPLOYMENT_TARGET:-17.4}"
-# Make ~/.cargo visible to non-login shells such as Xcode's.
-# shellcheck disable=SC1090
-source "$HOME/.cargo/env" 2>/dev/null || true
+# Make Cargo visible to non-login shells only when needed. CI already exports
+# the toolchain path; re-sourcing its generated shell setup under nounset can
+# abort Bash before any diagnostics, even with `|| true` and hidden stderr.
+if ! command -v cargo >/dev/null 2>&1 && [[ -r "$HOME/.cargo/env" ]]; then
+  # shellcheck disable=SC1090
+  source "$HOME/.cargo/env"
+fi
+if ! command -v cargo >/dev/null 2>&1; then
+  echo "Cargo is not on PATH. Install Rust or load its shell environment before building." >&2
+  exit 1
+fi
 
 # Rewrite $HOME to /build, since Rust bakes absolute source paths in as string
 # constants that survive stripping and reach the app's log console.
