@@ -130,7 +130,7 @@ jobs:
       - name: Build SideInstaller's existing FFI and embedded executable
         run: |
           set -o pipefail
-          bash build-rust.sh
+          bash build-rust.sh 2>&1 | tee embedded-rust.log
           xcodegen generate
           xcodebuild -project SideInstaller.xcodeproj -scheme SideInstaller \
             -configuration Release -destination 'generic/platform=iOS' \

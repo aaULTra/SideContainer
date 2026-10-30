@@ -13,13 +13,17 @@ struct TahoeGlass: ViewModifier {
     var radius: CGFloat = TahoeDesign.windowRadius
     @Environment(\.accessibilityReduceTransparency) private var reduceTransparency
     func body(content: Content) -> some View {
-        if reduceTransparency {
-            content.background(Color(uiColor: .secondarySystemBackground), in: RoundedRectangle(cornerRadius: radius))
-        } else {
-            if #available(iOS 26.0, *) {
-                content.glassEffect(.regular, in: RoundedRectangle(cornerRadius: radius))
+        // Only the background changes branches. Hosted content keeps its parent
+        // and identity when accessibility transparency settings change.
+        content.background {
+            if reduceTransparency {
+                RoundedRectangle(cornerRadius: radius).fill(Color(uiColor: .secondarySystemBackground))
             } else {
-                content.background(.regularMaterial, in: RoundedRectangle(cornerRadius: radius))
+                if #available(iOS 26.0, *) {
+                    Color.clear.glassEffect(.regular, in: RoundedRectangle(cornerRadius: radius))
+                } else {
+                    RoundedRectangle(cornerRadius: radius).fill(.regularMaterial)
+                }
             }
         }
     }
