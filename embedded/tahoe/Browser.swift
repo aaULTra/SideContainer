@@ -19,7 +19,8 @@ final class TahoeBrowserTab: NSObject, ObservableObject, Identifiable, WKNavigat
         super.init()
         address = url.absoluteString
         makeWebView(configuration: configuration)
-        webView?.load(URLRequest(url: url))
+        // WebKit loads the original request itself when it supplies a popup configuration.
+        if configuration == nil { webView?.load(URLRequest(url: url)) }
     }
 
     private func makeWebView(configuration: WKWebViewConfiguration? = nil) {

@@ -1,5 +1,8 @@
 // Native adaptation of macos-ui's window state transitions; see Notices/.
 import Foundation
+#if canImport(CoreGraphics)
+import CoreGraphics
+#endif
 
 enum TahoeWindowKind: String, Codable { case browser, applications, files, settings, guest }
 enum TahoeWindowLayout: String, Codable { case floating, maximized, left, right }
