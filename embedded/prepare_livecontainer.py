@@ -35,7 +35,7 @@ def edit_plist(path, transform):
         plistlib.dump(data, stream, sort_keys=False)
 
 
-def prepare(root):
+def prepare(root, tahoe=False):
     embedded = Path(__file__).resolve().parent
     revision = subprocess.check_output(["git", "-C", str(root), "rev-parse", "HEAD"], text=True).strip()
     if revision != LIVE_CONTAINER_COMMIT:
@@ -192,11 +192,15 @@ def prepare(root):
     edit_plist(root / "LiveContainer/Info.plist", host_plist)
     patch_certificate_validation(root, replace)
     patch_jit(root, replace)
+    if tahoe:
+        from tahoe.patch import patch as patch_tahoe
+        patch_tahoe(root, replace)
     (root / ".sideinstaller-adapted").write_text(LIVE_CONTAINER_COMMIT + "\n")
 
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("checkout", type=Path)
+    parser.add_argument("--tahoe", action="store_true", help="Opt in to the native Tahoe desktop presentation")
     args = parser.parse_args()
-    prepare(args.checkout.resolve())
+    prepare(args.checkout.resolve(), tahoe=args.tahoe)
